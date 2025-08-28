@@ -1,25 +1,3 @@
-## Changes from parser.py
-"""
-ImportCollector class:
-    __init__()
-    visit_Import
-    visit_ImportFrom()
-
-DependencyCollector class:
-    __init__()
-    visit_ClassDef
-    visit_Call
-    _resolve_name_from_from_imports - added
-    _process_attribute
-
-Dependency_parser class:
-    __init__()
-    parse_repository
-
-
-"""
-
-
 # Copyright (c) Meta Platforms, Inc. and affiliates
 """
 AST-based Python code parser that extracts dependency information between code components.
@@ -110,20 +88,13 @@ class ImportCollector(ast.NodeVisitor):
     def __init__(self, current_module: str, repo_modules: Set[str]):
         self.current_module = current_module  # e.g., "AutoDiff.main"
         self.repo_modules = repo_modules
-        self.imports: Dict[str, str] = {}      # identifier -> module_full_path
+        # self.imports: Dict[str, str] = {}      # identifier -> module_full_path
+        self.imports = set()
         self.from_imports: Dict[str, Set[str]] = {}  # resolved_module -> set(names)
 
     def visit_Import(self, node: ast.Import):
-        for alias in node.names:
-            full_name = alias.name  # e.g. "AutoDiff.utils" or "os"
-            if alias.asname:
-                identifier = alias.asname
-                self.imports[identifier] = full_name
-            else:
-                # binding is top-level package name (first part)
-                identifier = full_name.split('.')[0]
-                # store mapping identifier -> full_name (we'll use logic in DependencyCollector)
-                self.imports[identifier] = full_name
+        for name in node.names:
+            self.imports.add(name.name)
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom):
@@ -231,7 +202,7 @@ class DependencyCollector(ast.NodeVisitor):
     resolved by ImportCollector to link to repo modules.
     """
 
-    def __init__(self, imports: Dict[str, str], from_imports: Dict[str, Set[str]], current_module: str, repo_modules: Set[str]):
+    def __init__(self, imports, from_imports: Dict[str, Set[str]], current_module: str, repo_modules: Set[str]):
         # imports: identifier -> module_full_path (e.g. 'utils' -> 'AutoDiff.utils' or 'AutoDiff' -> 'AutoDiff.utils')
         # from_imports: resolved_module -> set(names)
         self.imports = imports
@@ -247,12 +218,6 @@ class DependencyCollector(ast.NodeVisitor):
         self._current_class = node.name
         for base in node.bases:
             if isinstance(base, ast.Name):
-                # # If base is imported via from_imports, map to module.Class
-                # mapped = self._resolve_name_from_from_imports(base.id)
-                # if mapped:
-                #     self.dependencies.add(mapped)
-                # else:
-                    # fallback: local module reference
                 self._add_dependency(base.id)
             elif isinstance(base, ast.Attribute):
                 self._process_attribute(base)
@@ -269,11 +234,6 @@ class DependencyCollector(ast.NodeVisitor):
         # handle direct function calls possibly imported via 'from module import func'
         if isinstance(node.func, ast.Name):
             name = node.func.id
-            # # check from_imports mapping
-            # mapped = self._resolve_name_from_from_imports(name)
-            # if mapped:
-            #     self.dependencies.add(mapped)
-            # else:
             self._add_dependency(name)
         elif isinstance(node.func, ast.Attribute):
             self._process_attribute(node.func)
@@ -288,18 +248,6 @@ class DependencyCollector(ast.NodeVisitor):
         self._process_attribute(node)
         self.generic_visit(node)
 
-    # def _resolve_name_from_from_imports(self, name: str) -> Optional[str]:
-    #     """
-    #     If `name` was imported via `from <module> import name`, return '<module>.<name>'
-    #     where <module> is the resolved module key (prefer repo modules keys).
-    #     """
-    #     for module_key, names in self.from_imports.items():
-    #         if name in names:
-    #             # If module_key is a resolved repo module, use it; otherwise we still return module_key
-    #             if module_key:
-    #                 return f"{module_key}.{name}"
-    #     return None
-
     def _process_attribute(self, node: ast.Attribute):
         """
         Handles dotted expressions and resolves them to repo modules where possible.
@@ -308,84 +256,6 @@ class DependencyCollector(ast.NodeVisitor):
           - AutoDiff.utils.Class -> longest prefix match of parts (AutoDiff.utils) found in repo_modules
           - from-import based attribute usage -> resolved via from_imports
         """
-        # parts = []
-        # current = node
-        # while isinstance(current, ast.Attribute):
-        #     parts.insert(0, current.attr)
-        #     current = current.value
-
-        # if isinstance(current, ast.Name):
-        #     parts.insert(0, current.id)
-        # else:
-        #     # not a simple dotted name (could be call result etc.)
-        #     return
-
-        # # skip local variables and excluded names
-        # if parts[0] in self.local_variables or parts[0] in EXCLUDED_NAMES:
-        #     return
-
-        # # 1) If first name is an alias from 'import ... as ...' or 'import ...'
-        # if parts[0] in self.imports:
-        #     module_full = self.imports[parts[0]]  # e.g. 'AutoDiff.utils' or 'os' or 'AutoDiff'
-        #     module_full_parts = module_full.split('.')
-        #     # If the module_full parts appear at the start of the dotted name (e.g. 'AutoDiff.utils.Class')
-        #     # find how many module parts match the `parts` prefix
-        #     m = 0
-        #     for i in range(min(len(module_full_parts), len(parts))):
-        #         if parts[i] == module_full_parts[i]:
-        #             m += 1
-        #         else:
-        #             break
-
-        #     if m == len(module_full_parts):
-        #         # matched full module path already present in code (e.g. 'AutoDiff.utils...')
-        #         remainder_index = m
-        #     elif parts[0] == parts[0]:  # alias usage case: alias maps to module_full -> use alias form
-        #         # alias used as a shorthand (e.g., 'utils.Class' while imports['utils'] == 'AutoDiff.utils')
-        #         remainder_index = 1
-        #     else:
-        #         remainder_index = len(module_full_parts)
-
-        #     # Determine the attribute name referenced after the module path
-        #     if remainder_index < len(parts):
-        #         attr_name = parts[remainder_index]
-        #         candidate_module = module_full  # resolved module path
-        #         # skip stdlib
-        #         top_module = candidate_module.split('.')[0]
-        #         if top_module in STANDARD_MODULES:
-        #             return
-        #         # only add if candidate_module is in repo or if import likely resolved
-        #         if candidate_module in self.repo_modules or candidate_module:
-        #             self.dependencies.add(f"{candidate_module}.{attr_name}")
-        #     else:
-        #         # attribute refers directly to the module imported without further attribute (rare)
-        #         # we don't add dependency for bare module reference
-        #         return
-
-        #     return
-
-        # # 2) Not an alias: find the longest prefix of parts that matches a repo module
-        # #    e.g., parts = ['AutoDiff','utils','Class'] => look for 'AutoDiff.utils' or 'AutoDiff'
-        # for k in range(len(parts), 0, -1):
-        #     candidate_module = '.'.join(parts[:k])
-        #     if candidate_module in self.repo_modules:
-        #         # attribute after the module (if any)
-        #         if k < len(parts):
-        #             attr = parts[k]
-        #             # skip stdlib top-level
-        #             if candidate_module.split('.')[0] in STANDARD_MODULES:
-        #                 return
-        #             self.dependencies.add(f"{candidate_module}.{attr}")
-        #         return
-
-        # # 3) Check if the dotted expression is of the form 'module.Name' matched in from_imports keys
-        # #    e.g., if 'utils' was recorded in from_imports as resolved to 'AutoDiff.utils', handle that.
-        # if parts[0] in self.from_imports:
-        #     # parts[0] refers to a resolved module key in from_imports (rare because keys are resolved module strings)
-        #     if len(parts) > 1 and parts[1] in self.from_imports[parts[0]]:
-        #         self.dependencies.add(f"{parts[0]}.{parts[1]}")
-        #     return
-        
 
         parts = []
         current = node
@@ -448,11 +318,6 @@ class DependencyCollector(ast.NodeVisitor):
             if name in imported_names and module in self.repo_modules:
                 self.dependencies.add(f"{module}.{name}")
                 return
-
-        # mapped = self._resolve_name_from_from_imports(name)
-        # if mapped:
-        #     self.dependencies.add(mapped)
-        #     return
 
         # Fallback: local module component reference
         local_component_id = f"{self.current_module}.{name}"
