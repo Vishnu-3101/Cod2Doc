@@ -1,5 +1,5 @@
 import sys
-from parser2 import DependencyParser
+from utils.parser import DependencyParser
 from utils.toposort import build_graph_from_components, dependency_first_dfs
 import logging
 
