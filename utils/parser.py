@@ -1,9 +1,30 @@
+## Changes from parser.py
+"""
+ImportCollector class:
+    __init__()
+    visit_Import
+    visit_ImportFrom()
+
+DependencyCollector class:
+    __init__()
+    visit_ClassDef
+    visit_Call
+    _resolve_name_from_from_imports - added
+    _process_attribute
+
+Dependency_parser class:
+    __init__()
+    parse_repository
+
+
+"""
+
+
 # Copyright (c) Meta Platforms, Inc. and affiliates
 """
 AST-based Python code parser that extracts dependency information between code components.
 
-This module identifies imports and references between Python code components (functions, classes, methods)
-and builds a dependency graph for topological sorting.
+Improved import resolution for repo-relative modules and alias handling.
 """
 
 import ast
@@ -20,53 +41,32 @@ logger = logging.getLogger(__name__)
 # Built-in Python types and modules that should be excluded from dependencies
 BUILTIN_TYPES = {name for name in dir(builtins)}
 STANDARD_MODULES = {
-    'abc', 'argparse', 'array', 'asyncio', 'base64', 'collections', 'copy', 
-    'csv', 'datetime', 'enum', 'functools', 'glob', 'io', 'itertools', 
-    'json', 'logging', 'math', 'os', 'pathlib', 'random', 're', 'shutil', 
+    'abc', 'argparse', 'array', 'asyncio', 'base64', 'collections', 'copy',
+    'csv', 'datetime', 'enum', 'functools', 'glob', 'io', 'itertools',
+    'json', 'logging', 'math', 'os', 'pathlib', 'random', 're', 'shutil',
     'string', 'sys', 'time', 'typing', 'uuid', 'warnings', 'xml'
 }
 EXCLUDED_NAMES = {'self', 'cls'}
 
+
 @dataclass
 class CodeComponent:
     """
-    Represents a single code component (function, class, or method) in a Python codebase.
-    
-    Stores the component's identifier, AST node, dependencies, and other metadata.
+    Represents a single code component (function, class, method, or assignment) in a Python codebase.
     """
-    # Unique identifier for the component, format: module_path.ClassName.method_name
     id: str
-    
-    # AST node representing this component
     node: ast.AST
-    
-    # Type of component: 'class', 'function', or 'method'
-    component_type: str
-    
-    # Full path to the file containing this component
+    component_type: str  # 'class', 'function', 'method', 'assignment'
     file_path: str
-    
-    # Relative path within the repo
     relative_path: str
-    
-    # Set of component IDs this component depends on
     depends_on: Set[str] = field(default_factory=set)
-    
-    # Original source code of the component
     source_code: Optional[str] = None
-    
-    # Line numbers in the file (1-indexed)
     start_line: int = 0
     end_line: int = 0
-    
-    # Whether the component already has a docstring
     has_docstring: bool = False
-    
-    # Content of the docstring if it exists, empty string otherwise
     docstring: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert this component to a dictionary representation for JSON serialization."""
         return {
             'id': self.id,
             'component_type': self.component_type,
@@ -82,15 +82,14 @@ class CodeComponent:
 
     @staticmethod
     def from_dict(data: Dict[str, Any]) -> 'CodeComponent':
-        """Create a CodeComponent from a dictionary representation."""
         component = CodeComponent(
             id=data['id'],
-            node=None,  # AST node is not serialized
+            node=None,
             component_type=data['component_type'],
             file_path=data['file_path'],
             relative_path=data['relative_path'],
             depends_on=set(data.get('depends_on', [])),
-            source_code=data['source_code'],
+            source_code=data.get('source_code'),
             start_line=data.get('start_line', 0),
             end_line=data.get('end_line', 0),
             has_docstring=data.get('has_docstring', False),
@@ -100,146 +99,294 @@ class CodeComponent:
 
 
 class ImportCollector(ast.NodeVisitor):
-    """Collects import statements from Python code."""
-    
-    def __init__(self):
-        self.imports = set()
-        self.from_imports = {}  # module -> [names]
-        
+    """
+    Collects imports and resolves them to repo-relative module paths when possible.
+
+    Attributes produced:
+      - imports: dict mapping identifier used in code -> full module path (e.g. 'utils' -> 'AutoDiff.utils')
+      - from_imports: dict mapping resolved_module (full) -> set(imported_names)
+    """
+
+    def __init__(self, current_module: str, repo_modules: Set[str]):
+        self.current_module = current_module  # e.g., "AutoDiff.main"
+        self.repo_modules = repo_modules
+        self.imports: Dict[str, str] = {}      # identifier -> module_full_path
+        self.from_imports: Dict[str, Set[str]] = {}  # resolved_module -> set(names)
+
     def visit_Import(self, node: ast.Import):
-        """Process 'import x' statements."""
-        for name in node.names:
-            self.imports.add(name.name)
+        for alias in node.names:
+            full_name = alias.name  # e.g. "AutoDiff.utils" or "os"
+            if alias.asname:
+                identifier = alias.asname
+                self.imports[identifier] = full_name
+            else:
+                # binding is top-level package name (first part)
+                identifier = full_name.split('.')[0]
+                # store mapping identifier -> full_name (we'll use logic in DependencyCollector)
+                self.imports[identifier] = full_name
         self.generic_visit(node)
-    
+
     def visit_ImportFrom(self, node: ast.ImportFrom):
-        """Process 'from x import y' statements."""
-        if node.module is not None:
-            module = node.module
-            if module not in self.from_imports:
-                self.from_imports[module] = []
-            
-            for name in node.names:
-                if name.name != '*':
-                    self.from_imports[module].append(name.name)
-        
+        """
+        Resolve 'from X import Y' with support for:
+          - absolute imports
+          - implicit repo-relative resolution (prefix with current package)
+          - relative imports (node.level)
+        """
+        module = node.module  # may be None for 'from . import X'
+        level = getattr(node, "level", 0)
+
+        resolved_module = None
+
+        # Build current module parts (e.g., AutoDiff.main -> ['AutoDiff', 'main'])
+        cur_parts = self.current_module.split('.')
+
+        # Handle explicit relative imports (node.level > 0)
+        if level and level > 0:
+            # Compute base by going up 'level' directories from current module's package
+            # drop last element(s) for level: typical: from .utils import X -> level=1
+            base_parts = cur_parts[:-level]
+            if module:
+                base_parts = base_parts + module.split('.')
+            if base_parts:
+                candidate = '.'.join(base_parts)
+                if candidate in self.repo_modules:
+                    resolved_module = candidate
+                else:
+                    resolved_module = candidate  # keep candidate even if not in repo (external or unresolved)
+            else:
+                resolved_module = module or ''
+        else:
+            # Absolute import or plain 'from utils import X'
+            if module:
+                # If exact module exists in repo, use it
+                if module in self.repo_modules:
+                    resolved_module = module
+                else:
+                    # Try to resolve by prefixing parent packages of current_module:
+                    parent_parts = cur_parts[:-1]  # module's package
+                    resolved = None
+                    while parent_parts:
+                        cand = '.'.join(parent_parts + module.split('.'))
+                        if cand in self.repo_modules:
+                            resolved = cand
+                            break
+                        parent_parts = parent_parts[:-1]
+                    if resolved:
+                        resolved_module = resolved
+                    else:
+                        # Keep module text (external or unresolved)
+                        resolved_module = module
+            else:
+                # 'from . import X' or 'from  import X' without module, treat as parent package
+                parent_candidate = '.'.join(cur_parts[:-1])
+                if parent_candidate in self.repo_modules:
+                    resolved_module = parent_candidate
+                else:
+                    resolved_module = parent_candidate  # external/unresolved parent
+
+        # Record imported names under the resolved module key
+        key = resolved_module or (module or "")
+        if key not in self.from_imports:
+            self.from_imports[key] = set()
+
+        for alias in node.names:
+            if alias.name == '*':
+                # star imports are hard to resolve; record wildcard marker
+                # keep '*' as name so downstream can detect
+                self.from_imports[key].add('*')
+            else:
+                self.from_imports[key].add(alias.asname or alias.name)
+
         self.generic_visit(node)
 
 
 class MethodDependencyCollector(ast.NodeVisitor):
     """
-    Special dependency collector for methods that also tracks 'self.XXX' references
-    as potential dependencies.
+    For methods: capture self.xxx accesses and map to other methods if they exist.
     """
-    
     def __init__(self, class_id: str, method_id: str, class_methods: Dict[str, str]):
         self.class_id = class_id
         self.method_id = method_id
-        self.class_methods = class_methods  # method_name -> full_method_id
-        self.self_attr_refs = set()  # Set of attributes accessed via self.XXX
-        
+        self.class_methods = class_methods
+        self.self_attr_refs = set()
+
     def visit_Attribute(self, node: ast.Attribute):
-        """Process attribute access, specifically looking for self.XXX references."""
-        if (isinstance(node.value, ast.Name) and 
-            node.value.id == 'self' and 
-            isinstance(node.ctx, ast.Load)):
-            
-            # Found a self.XXX reference
-            attr_name = node.attr
-            self.self_attr_refs.add(attr_name)
-        
+        if isinstance(node.value, ast.Name) and node.value.id == 'self' and isinstance(node.ctx, ast.Load):
+            self.self_attr_refs.add(node.attr)
         self.generic_visit(node)
-    
+
     def get_method_dependencies(self) -> Set[str]:
-        """
-        Get the set of methods that this method depends on based on self.XXX references.
-        
-        Returns:
-            A set of method IDs that this method depends on
-        """
-        dependencies = set()
-        
-        # Check if any self.attr references match method names
+        deps = set()
         for attr in self.self_attr_refs:
             if attr in self.class_methods:
-                # This is a reference to another method in the class
-                dependencies.add(self.class_methods[attr])
-        
-        return dependencies
+                deps.add(self.class_methods[attr])
+        return deps
 
 
 class DependencyCollector(ast.NodeVisitor):
     """
-    Collects dependencies between code components by analyzing
-    attribute access, function calls, and class references.
+    Collects dependencies between code components by analyzing attribute access,
+    function calls, class bases and name references. It uses the import mappings
+    resolved by ImportCollector to link to repo modules.
     """
-    
-    def __init__(self, imports, from_imports, current_module, repo_modules):
+
+    def __init__(self, imports: Dict[str, str], from_imports: Dict[str, Set[str]], current_module: str, repo_modules: Set[str]):
+        # imports: identifier -> module_full_path (e.g. 'utils' -> 'AutoDiff.utils' or 'AutoDiff' -> 'AutoDiff.utils')
+        # from_imports: resolved_module -> set(names)
         self.imports = imports
         self.from_imports = from_imports
         self.current_module = current_module
         self.repo_modules = repo_modules
-        self.dependencies = set()
+        self.dependencies: Set[str] = set()
         self._current_class = None
-        # Track local variables defined in the current context
-        self.local_variables = set()
-    
+        self.local_variables: Set[str] = set()
+
     def visit_ClassDef(self, node: ast.ClassDef):
-        """Process class definitions."""
-        old_class = self._current_class
+        old = self._current_class
         self._current_class = node.name
-        
-        # Check for base classes dependencies
         for base in node.bases:
             if isinstance(base, ast.Name):
-                # for module, names in self.from_imports.items():
-                #     if base.id in names:
-                #         # This class depends on the imported class
-                #         self.dependencies.add(f"{module}.{base.id}")
-                # Simple name reference, could be an imported class
+                # # If base is imported via from_imports, map to module.Class
+                # mapped = self._resolve_name_from_from_imports(base.id)
+                # if mapped:
+                #     self.dependencies.add(mapped)
+                # else:
+                    # fallback: local module reference
                 self._add_dependency(base.id)
             elif isinstance(base, ast.Attribute):
-                # Module.Class reference
                 self._process_attribute(base)
-        
         self.generic_visit(node)
-        self._current_class = old_class
-    
+        self._current_class = old
+
     def visit_Assign(self, node: ast.Assign):
-        """Track local variable assignments."""
         for target in node.targets:
             if isinstance(target, ast.Name):
-                # Add to local variables
                 self.local_variables.add(target.id)
         self.generic_visit(node)
-    
+
     def visit_Call(self, node: ast.Call):
-        """Process function calls."""
+        # handle direct function calls possibly imported via 'from module import func'
         if isinstance(node.func, ast.Name):
-        #     for module, names in self.from_imports.items():
-        #         if node.func.id in names and module in self.repo_modules:
-        #             self.dependencies.add(f"{module}.{node.func.id}")
-            # Direct function call
-            self._add_dependency(node.func.id)
+            name = node.func.id
+            # # check from_imports mapping
+            # mapped = self._resolve_name_from_from_imports(name)
+            # if mapped:
+            #     self.dependencies.add(mapped)
+            # else:
+            self._add_dependency(name)
         elif isinstance(node.func, ast.Attribute):
-            # Method call or module.function call
             self._process_attribute(node.func)
-        
         self.generic_visit(node)
-    
+
     def visit_Name(self, node: ast.Name):
-        """Process name references."""
         if isinstance(node.ctx, ast.Load):
             self._add_dependency(node.id)
         self.generic_visit(node)
-    
+
     def visit_Attribute(self, node: ast.Attribute):
-        """Process attribute access."""
         self._process_attribute(node)
         self.generic_visit(node)
-    
+
+    # def _resolve_name_from_from_imports(self, name: str) -> Optional[str]:
+    #     """
+    #     If `name` was imported via `from <module> import name`, return '<module>.<name>'
+    #     where <module> is the resolved module key (prefer repo modules keys).
+    #     """
+    #     for module_key, names in self.from_imports.items():
+    #         if name in names:
+    #             # If module_key is a resolved repo module, use it; otherwise we still return module_key
+    #             if module_key:
+    #                 return f"{module_key}.{name}"
+    #     return None
+
     def _process_attribute(self, node: ast.Attribute):
-        """Process an attribute node to extract potential dependencies."""
+        """
+        Handles dotted expressions and resolves them to repo modules where possible.
+        Example patterns:
+          - alias.Class -> import alias maps to AutoDiff.utils -> dependency AutoDiff.utils.Class
+          - AutoDiff.utils.Class -> longest prefix match of parts (AutoDiff.utils) found in repo_modules
+          - from-import based attribute usage -> resolved via from_imports
+        """
+        # parts = []
+        # current = node
+        # while isinstance(current, ast.Attribute):
+        #     parts.insert(0, current.attr)
+        #     current = current.value
+
+        # if isinstance(current, ast.Name):
+        #     parts.insert(0, current.id)
+        # else:
+        #     # not a simple dotted name (could be call result etc.)
+        #     return
+
+        # # skip local variables and excluded names
+        # if parts[0] in self.local_variables or parts[0] in EXCLUDED_NAMES:
+        #     return
+
+        # # 1) If first name is an alias from 'import ... as ...' or 'import ...'
+        # if parts[0] in self.imports:
+        #     module_full = self.imports[parts[0]]  # e.g. 'AutoDiff.utils' or 'os' or 'AutoDiff'
+        #     module_full_parts = module_full.split('.')
+        #     # If the module_full parts appear at the start of the dotted name (e.g. 'AutoDiff.utils.Class')
+        #     # find how many module parts match the `parts` prefix
+        #     m = 0
+        #     for i in range(min(len(module_full_parts), len(parts))):
+        #         if parts[i] == module_full_parts[i]:
+        #             m += 1
+        #         else:
+        #             break
+
+        #     if m == len(module_full_parts):
+        #         # matched full module path already present in code (e.g. 'AutoDiff.utils...')
+        #         remainder_index = m
+        #     elif parts[0] == parts[0]:  # alias usage case: alias maps to module_full -> use alias form
+        #         # alias used as a shorthand (e.g., 'utils.Class' while imports['utils'] == 'AutoDiff.utils')
+        #         remainder_index = 1
+        #     else:
+        #         remainder_index = len(module_full_parts)
+
+        #     # Determine the attribute name referenced after the module path
+        #     if remainder_index < len(parts):
+        #         attr_name = parts[remainder_index]
+        #         candidate_module = module_full  # resolved module path
+        #         # skip stdlib
+        #         top_module = candidate_module.split('.')[0]
+        #         if top_module in STANDARD_MODULES:
+        #             return
+        #         # only add if candidate_module is in repo or if import likely resolved
+        #         if candidate_module in self.repo_modules or candidate_module:
+        #             self.dependencies.add(f"{candidate_module}.{attr_name}")
+        #     else:
+        #         # attribute refers directly to the module imported without further attribute (rare)
+        #         # we don't add dependency for bare module reference
+        #         return
+
+        #     return
+
+        # # 2) Not an alias: find the longest prefix of parts that matches a repo module
+        # #    e.g., parts = ['AutoDiff','utils','Class'] => look for 'AutoDiff.utils' or 'AutoDiff'
+        # for k in range(len(parts), 0, -1):
+        #     candidate_module = '.'.join(parts[:k])
+        #     if candidate_module in self.repo_modules:
+        #         # attribute after the module (if any)
+        #         if k < len(parts):
+        #             attr = parts[k]
+        #             # skip stdlib top-level
+        #             if candidate_module.split('.')[0] in STANDARD_MODULES:
+        #                 return
+        #             self.dependencies.add(f"{candidate_module}.{attr}")
+        #         return
+
+        # # 3) Check if the dotted expression is of the form 'module.Name' matched in from_imports keys
+        # #    e.g., if 'utils' was recorded in from_imports as resolved to 'AutoDiff.utils', handle that.
+        # if parts[0] in self.from_imports:
+        #     # parts[0] refers to a resolved module key in from_imports (rare because keys are resolved module strings)
+        #     if len(parts) > 1 and parts[1] in self.from_imports[parts[0]]:
+        #         self.dependencies.add(f"{parts[0]}.{parts[1]}")
+        #     return
+        
+
         parts = []
         current = node
         
@@ -281,22 +428,18 @@ class DependencyCollector(ast.NodeVisitor):
                 # Check if the name is in the imported names
                 if len(parts) > 1 and parts[1] in self.from_imports[parts[0]]:
                     self.dependencies.add(f"{parts[0]}.{parts[1]}")
-    
-    def _add_dependency(self, name):
-        """Add a potential dependency based on a name reference."""
-        # Skip built-in types
-        if name in BUILTIN_TYPES:
+
+    def _add_dependency(self, name: str):
+        """
+        Add a dependency for a simple name reference:
+           - If it's a built-in or local var, ignore
+           - If name was imported via 'from module import name', map to module.name
+           - Otherwise assume local module reference current_module.name
+        """
+        if name in BUILTIN_TYPES or name in EXCLUDED_NAMES or name in self.local_variables:
             return
-            
-        # Skip excluded names
-        if name in EXCLUDED_NAMES:
-            return
-            
-        # Skip local variables
-        if name in self.local_variables:
-            return
-            
-        # Check if name is directly imported from a module
+
+        # Check from_imports first
         for module, imported_names in self.from_imports.items():
             # Skip standard library modules
             if module in STANDARD_MODULES:
@@ -305,18 +448,20 @@ class DependencyCollector(ast.NodeVisitor):
             if name in imported_names and module in self.repo_modules:
                 self.dependencies.add(f"{module}.{name}")
                 return
-                
-        # Check if name refers to a component in the current module
+
+        # mapped = self._resolve_name_from_from_imports(name)
+        # if mapped:
+        #     self.dependencies.add(mapped)
+        #     return
+
+        # Fallback: local module component reference
         local_component_id = f"{self.current_module}.{name}"
         self.dependencies.add(local_component_id)
 
 
 def add_parent_to_nodes(tree: ast.AST) -> None:
     """
-    Add a 'parent' attribute to each node in the AST.
-    
-    Args:
-        tree: The AST to process
+    Add a 'parent' attribute to each node in the AST for upward navigation.
     """
     for node in ast.walk(tree):
         for child in ast.iter_child_nodes(node):
@@ -327,90 +472,84 @@ class DependencyParser:
     """
     Parses Python code to build a dependency graph between code components.
     """
-    
+
     def __init__(self, repo_path: str):
         self.repo_path = os.path.abspath(repo_path)
         self.components: Dict[str, CodeComponent] = {}
         self.dependency_graph: Dict[str, List[str]] = {}
         self.modules: Set[str] = set()
-        
+
     def parse_repository(self):
-        """
-        Parse all Python files in the repository to build the dependency graph.
-        """
         logger.info(f"Parsing repository at {self.repo_path}")
-        
-        # First pass: collect all modules and code components
+
+        # First pass: collect modules and code components
         for root, _, files in os.walk(self.repo_path):
             for file in files:
                 if not file.endswith(".py"):
                     continue
-                
+
                 file_path = os.path.join(root, file)
                 relative_path = os.path.relpath(file_path, self.repo_path)
-                
-                # Convert file path to module path
                 module_path = self._file_to_module_path(relative_path)
                 self.modules.add(module_path)
-                
-                # Parse the file to collect components
+
+        # Second pass: parse files (now that self.modules is populated)
+        for root, _, files in os.walk(self.repo_path):
+            for file in files:
+                if not file.endswith(".py"):
+                    continue
+
+                file_path = os.path.join(root, file)
+                relative_path = os.path.relpath(file_path, self.repo_path)
+                module_path = self._file_to_module_path(relative_path)
                 self._parse_file(file_path, relative_path, module_path)
-        
-        # Second pass: resolve dependencies
+
+        # Resolve dependencies (analyze component bodies)
         self._resolve_dependencies()
-        
-        # Third pass: add class dependencies on methods
+
+        # Add method dependencies to classes
         self._add_class_method_dependencies()
-        
+
         logger.info(f"Found {len(self.components)} code components")
         return self.components
-    
+
     def _file_to_module_path(self, file_path: str) -> str:
-        """Convert a file path to a Python module path."""
-        # Remove .py extension and convert / to .
+        """Convert a file path (relative to repo) to a Python module path (dotted)."""
         path = file_path[:-3] if file_path.endswith(".py") else file_path
         return path.replace(os.path.sep, ".")
-    
+
     def _parse_file(self, file_path: str, relative_path: str, module_path: str):
         """Parse a single Python file to collect code components."""
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 source = f.read()
-            
+
             tree = ast.parse(source)
-            
-            # Add parent field to AST nodes for easier traversal
             add_parent_to_nodes(tree)
-            
-            # Collect imports
-            import_collector = ImportCollector()
+
+            # Collect imports with repo-aware resolution
+            import_collector = ImportCollector(module_path, self.modules)
             import_collector.visit(tree)
-            
+
             # Collect code components
             self._collect_components(tree, file_path, relative_path, module_path, source)
-            
+
         except (SyntaxError, UnicodeDecodeError) as e:
             logger.warning(f"Error parsing {file_path}: {e}")
-    
-    def _collect_components(self, tree: ast.AST, file_path: str, relative_path: str, 
-                          module_path: str, source: str):
-        """Collect all code components (functions, classes, methods) from an AST."""
+
+    def _collect_components(self, tree: ast.AST, file_path: str, relative_path: str,
+                            module_path: str, source: str):
+        """Collect classes, top-level functions, methods and assignments (top-level)."""
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
-                # Class definition
                 class_id = f"{module_path}.{node.name}"
-                
-                # Check if the class has a docstring
                 has_docstring = (
-                    len(node.body) > 0 
-                    and isinstance(node.body[0], ast.Expr) 
+                    len(node.body) > 0
+                    and isinstance(node.body[0], ast.Expr)
                     and isinstance(node.body[0].value, ast.Constant)
                     and isinstance(node.body[0].value.value, str)
                 )
-                
-                # Extract docstring if it exists
                 docstring = self._get_docstring(source, node) if has_docstring else ""
-                
                 component = CodeComponent(
                     id=class_id,
                     node=node,
@@ -423,25 +562,19 @@ class DependencyParser:
                     has_docstring=has_docstring,
                     docstring=docstring
                 )
-                
                 self.components[class_id] = component
-                
-                # Collect methods within the class
+
+                # methods
                 for item in node.body:
                     if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         method_id = f"{class_id}.{item.name}"
-                        
-                        # Check if the method has a docstring
                         method_has_docstring = (
-                            len(item.body) > 0 
-                            and isinstance(item.body[0], ast.Expr) 
+                            len(item.body) > 0
+                            and isinstance(item.body[0], ast.Expr)
                             and isinstance(item.body[0].value, ast.Constant)
                             and isinstance(item.body[0].value.value, str)
                         )
-                        
-                        # Extract docstring if it exists
                         method_docstring = self._get_docstring(source, item) if method_has_docstring else ""
-                        
                         method_component = CodeComponent(
                             id=method_id,
                             node=item,
@@ -454,25 +587,19 @@ class DependencyParser:
                             has_docstring=method_has_docstring,
                             docstring=method_docstring
                         )
-                        
                         self.components[method_id] = method_component
-            
+
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 # Only collect top-level functions
                 if hasattr(node, 'parent') and isinstance(node.parent, ast.Module):
                     func_id = f"{module_path}.{node.name}"
-                    
-                    # Check if the function has a docstring
                     has_docstring = (
-                        len(node.body) > 0 
-                        and isinstance(node.body[0], ast.Expr) 
+                        len(node.body) > 0
+                        and isinstance(node.body[0], ast.Expr)
                         and isinstance(node.body[0].value, ast.Constant)
                         and isinstance(node.body[0].value.value, str)
                     )
-                    
-                    # Extract docstring if it exists
                     docstring = self._get_docstring(source, node) if has_docstring else ""
-                    
                     component = CodeComponent(
                         id=func_id,
                         node=node,
@@ -485,10 +612,10 @@ class DependencyParser:
                         has_docstring=has_docstring,
                         docstring=docstring
                     )
-                    
                     self.components[func_id] = component
-        
+
             elif isinstance(node, ast.Assign):
+                # top-level assignments
                 if hasattr(node, 'parent') and isinstance(node.parent, ast.Module):
                     for target in node.targets:
                         if isinstance(target, ast.Name):
@@ -504,54 +631,48 @@ class DependencyParser:
                                 end_line=getattr(node, "end_lineno", node.lineno)
                             )
                             self.components[assign_id] = component
-    
+
     def _resolve_dependencies(self):
         """
-        Second pass to resolve dependencies between components.
+        Analyze each collected component's AST node to discover dependencies.
         """
-        for component_id, component in self.components.items():
+        for component_id, component in list(self.components.items()):
             file_path = component.file_path
-            
+
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     source = f.read()
-                
-                # Parse file to get imports
+
                 tree = ast.parse(source)
-                
-                # Add parent field to AST nodes for easier traversal
                 add_parent_to_nodes(tree)
-                
-                # Collect imports
-                import_collector = ImportCollector()
+
+                # Collect imports for this file (with repo context)
+                import_collector = ImportCollector(self._file_to_module_path(component.relative_path), self.modules)
                 import_collector.visit(tree)
-                
-                # Find the component node in the tree
+
+                # Identify the relevant AST node for this component
                 component_node = None
                 module_path = self._file_to_module_path(component.relative_path)
-                
+
                 if component.component_type == "function":
-                    # Find top-level function
                     for node in ast.iter_child_nodes(tree):
-                        if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) 
-                                and node.name == component.id.split(".")[-1]):
+                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == component.id.split(".")[-1]:
                             component_node = node
                             break
+
                 elif component.component_type == "assignment":
-                    # Find top-level assignments
                     for node in ast.iter_child_nodes(tree):
                         if isinstance(node, ast.Assign):
                             if any(isinstance(t, ast.Name) and f"{module_path}.{t.id}" == component_id for t in node.targets):
                                 component_node = node
                                 break
-                
+
                 elif component.component_type == "class":
-                    # Find class
                     for node in ast.iter_child_nodes(tree):
                         if isinstance(node, ast.ClassDef) and node.name == component.id.split(".")[-1]:
                             component_node = node
                             break
-                
+
                 elif component.component_type == "method":
                     # Find method inside class
                     class_name, method_name = component.id.split(".")[-2:]
@@ -599,15 +720,12 @@ class DependencyParser:
                 
             except (SyntaxError, UnicodeDecodeError) as e:
                 logger.warning(f"Error analyzing dependencies in {file_path}: {e}")
-    
+
     def _add_class_method_dependencies(self):
         """
-        Third pass to make classes dependent on their methods (except __init__).
+        Make classes depend on their methods (except __init__).
         """
-        # Group components by class
-        class_methods = {}
-        
-        # Collect all methods for each class
+        class_methods: Dict[str, List[str]] = {}
         for component_id, component in self.components.items():
             if component.component_type == "method":
                 parts = component_id.split(".")
@@ -628,27 +746,22 @@ class DependencyParser:
                 class_component = self.components[class_id]
                 for method_id in method_ids:
                     class_component.depends_on.add(method_id)
-    
+
     def _get_source_segment(self, source: str, node: ast.AST) -> str:
-        """Get source code segment for an AST node."""
         try:
             if hasattr(ast, "get_source_segment"):
                 segment = ast.get_source_segment(source, node)
                 if segment is not None:
                     return segment
-            
-            # Fallback to manual extraction
             lines = source.split("\n")
             start_line = node.lineno - 1
             end_line = getattr(node, "end_lineno", node.lineno) - 1
             return "\n".join(lines[start_line:end_line + 1])
-        
         except Exception as e:
             logger.warning(f"Error getting source segment: {e}")
             return ""
-    
+
     def _get_docstring(self, source: str, node: ast.AST) -> str:
-        """Get the docstring for a given AST node."""
         try:
             if isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
                 for item in node.body:
@@ -664,33 +777,19 @@ class DependencyParser:
         except Exception as e:
             logger.warning(f"Error getting docstring: {e}")
             return ""
-    
+
     def save_dependency_graph(self, output_path: str):
-        """Save the dependency graph to a JSON file."""
-        # Convert to serializable format
-        serializable_components = {
-            comp_id: component.to_dict()
-            for comp_id, component in self.components.items()
-        }
-        
-        # Create directories if they don't exist
-        # os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        
+        serializable_components = {comp_id: comp.to_dict() for comp_id, comp in self.components.items()}
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(serializable_components, f, indent=2)
-        
         logger.info(f"Saved dependency graph to {output_path}")
-    
+
     def load_dependency_graph(self, input_path: str):
-        """Load the dependency graph from a JSON file."""
         with open(input_path, "r", encoding="utf-8") as f:
             serialized_components = json.load(f)
-        
-        # Convert back to CodeComponent objects
         self.components = {
             comp_id: CodeComponent.from_dict(comp_data)
             for comp_id, comp_data in serialized_components.items()
         }
-        
         logger.info(f"Loaded {len(self.components)} components from {input_path}")
-        return self.components 
+        return self.components
