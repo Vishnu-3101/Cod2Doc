@@ -1,37 +1,74 @@
-from langchain_community.document_loaders import JSONLoader
-from langchain_text_splitters import RecursiveJsonSplitter, RecursiveCharacterTextSplitter
+import json
+from langchain.schema import Document
+
+from langchain_huggingface.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+from typing import List
+from langchain_core.runnables import chain
 
 
-def metadata_func(record: dict, metadata: dict) -> dict:
-    metadata["depends_on"] = record.get("depends_on")
-    metadata["id"] = record.get("id")
-    metadata["component_type"] = record.get("component_type")
-    metadata["docstring"] = record.get("docstring")
-    return metadata
+with open("output/dependency_graph.json", "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+docs = []
+for comp_id, comp in data.items():
+    docs.append(
+        Document(
+            page_content=comp["source_code"],  # searchable content
+            metadata={
+                "id": comp["id"],
+                "component_type": comp["component_type"],
+                "depends_on": comp["depends_on"],
+                "file_path": comp["file_path"],
+                "relative_path": comp["relative_path"],
+            }
+        )
+    )
 
 
-file_path = 'dependency_graph.json'
-loader = JSONLoader(
-    file_path=file_path,
-    jq_schema='.[]',
-    # text_content=False,
-    content_key="source_code",
-    metadata_func=metadata_func
-)
+def retrieve_with_dependencies(query, retriever, data):
+    results = retriever.invoke(query)
+    
+    expanded = []
+    seen = set()
+    
+    def add_with_deps(comp_id):
+        if comp_id in seen or comp_id not in data:
+            return
+        seen.add(comp_id)
+        expanded.append(data[comp_id])
+        for dep in data[comp_id]["depends_on"]:
+            add_with_deps(dep)
+
+    for doc in results:
+        add_with_deps(doc.metadata["id"])
+    
+    return results,expanded
 
 
-splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-l6-v2")
+vectorstore = FAISS.from_documents(docs, embeddings)
+retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 1})
 
+@chain
+def retriever(query: str) -> List[Document]:
+    docs, scores = zip(*vectorstore.similarity_search_with_score(query,k=4))
+    for doc, score in zip(docs, scores):
+        doc.metadata["score"] = score
 
-# data = json.loads(Path(file_path).read_text())
+    best_doc = sorted(docs, key=lambda d: d.metadata["score"],reverse=True)
+    return best_doc
 
-data = loader.load()
+# Example
+query_code = "back = _backward()"
+results,expanded_results = retrieve_with_dependencies(query_code, retriever, data)
+# for res in expanded_results:
+#     print(res["id"], "=> depends on", res["depends_on"])
 
-splits = splitter.split_documents(data)
+# print(results)
 
-for chunk in splits[:5]:
-    print(chunk.page_content)
-    print(chunk.metadata)
-    print("----------------------------")
+for result in results:
+    print(result.metadata['score'])
+    print(result.page_content)
 
-print(len(splits))
+# print(len(docs))
