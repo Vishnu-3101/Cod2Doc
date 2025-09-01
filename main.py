@@ -8,6 +8,10 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.retrievers import BM25Retriever
 from langchain.retrievers import EnsembleRetriever
 
+from langchain.prompts import PromptTemplate
+from langchain.chains import LLMChain
+from langchain_ollama import ChatOllama
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -52,13 +56,33 @@ query_code = "def backward():"
 results,expanded_results = retrieve_with_dependencies(query_code, hybrid_retriever, data)
 
 
-for result in results:
-    # print(result.metadata['score'])
-    print(result.page_content)
-    print("------------------------------------")
+# for result in results:
+#     # print(result.metadata['score'])
+#     print(result.page_content)
+#     print("------------------------------------")
 
 # print(expanded_results)
 
 for res in expanded_results:
     print(res["id"], "=> depends on", res["depends_on"])
     print("------------------------------------")
+
+
+llm = ChatOllama(model="qwen3:0.6b")
+
+template = """
+You are a code documentation generator.
+Generate documentation for the {query_code}. Use {components} for any additional information 
+required to generate detailed documentation. The documentation should be of two paragraphs.:
+
+1. Brief introduction involving functionality and explanation of given code in 2-3 lines.
+2. Detailed functionality including the components the code depends on if any in not more than 100 words.
+
+"""
+prompt = PromptTemplate.from_template(template)
+chain = LLMChain(llm=llm, prompt=prompt)
+
+docs_to_docgen = "\n\n".join([res["source_code"] for res in expanded_results])
+documentation = chain.invoke({"query_code": query_code, "components": docs_to_docgen})
+
+print(documentation['text'])

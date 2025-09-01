@@ -20,12 +20,12 @@
     "relative_path": "AutoDiff\\AutoDiff.py",
     "depends_on": [
       "AutoDiff.AutoDiff.Tensor.__mul__",
-      "AutoDiff.AutoDiff.Tensor.backward",
-      "AutoDiff.AutoDiff.Tensor.__repr__",
-      "AutoDiff.AutoDiff.Tensor.__add__",
       "AutoDiff.AutoDiff.Tensor.__rmul__",
+      "AutoDiff.AutoDiff.Tensor.__add__",
+      "AutoDiff.AutoDiff.Tensor.__repr__",
+      "AutoDiff.AutoDiff.Tensor",
       "AutoDiff.AutoDiff.Tensor.__radd__",
-      "AutoDiff.AutoDiff.Tensor"
+      "AutoDiff.AutoDiff.Tensor.backward"
     ],
     "source_code": "class Tensor",
     "start_line": 8,
@@ -167,8 +167,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\AutoDiff\\main.py",
     "relative_path": "AutoDiff\\main.py",
     "depends_on": [
-      "AutoDiff.main.SimpleFunction",
       "AutoDiff.main.x1",
+      "AutoDiff.main.SimpleFunction",
       "AutoDiff.main.x2"
     ],
     "source_code": "y = SimpleFunction(x1,x2)",
@@ -348,11 +348,11 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\generate_docstrings.py",
     "relative_path": "DocAgent\\generate_docstrings.py",
     "depends_on": [
-      "DocAgent.src.visualizer.web_bridge.patch_visualizers",
-      "DocAgent.generate_docstrings.generate_docstring_for_component",
       "DocAgent.generate_docstrings.set_docstring_in_file",
       "DocAgent.generate_docstrings.logger",
-      "DocAgent.src.agent.orchestrator.Orchestrator"
+      "DocAgent.src.agent.orchestrator.Orchestrator",
+      "DocAgent.src.visualizer.web_bridge.patch_visualizers",
+      "DocAgent.generate_docstrings.generate_docstring_for_component"
     ],
     "source_code": "def main():\n    \"\"\"\n    Main entry point for the docstring generation script with flexible component ordering.\n    \n    The script supports different ordering modes through the --order-mode flag:\n    - 'topo' (default): Dependency-based ordering using a DFS-based approach:\n        1. If A depends on B, the graph has an edge A\u2192B (meaning \"A depends on B\")\n        2. Root nodes (nodes with no dependencies) are processed first\n        3. Dependencies are always processed before the components that depend on them\n        4. This ensures proper docstring generation order\n    - 'random_node': Randomly shuffles all Python components, ignoring dependencies\n    - 'random_file': Processes files in random order, but preserves component order within files\n    \n    Class methods are processed before the classes that depend on them (not vice versa) in 'topo' mode,\n    ensuring proper docstring generation order. Special __init__ methods are skipped as\n    they typically don't need separate docstrings.\n    \n    The script provides options to skip or overwrite existing docstrings:\n    - By default, components with existing docstrings are skipped\n    - With --overwrite-docstrings flag, existing docstrings will be overwritten\n    - This behavior can also be configured in the config.yaml file under docstring_options.overwrite_docstrings\n    \n    Web interface integration:\n    - With --enable-web flag, the script enables integration with the web UI\n    - This allows visualization of the docstring generation process in a web browser\n    - Run the web UI separately using the run_web_ui.py script\n    \"\"\"\n    # Parse command line arguments\n    parser = argparse.ArgumentParser(\n        description='Generate docstrings for Python components in dependency order.'\n    )\n    parser.add_argument(\n        '--repo-path', \n        type=str, \n        default='data/raw_test_repo',\n        help='Path to the repository (default: data/raw_test_repo)'\n    )\n    parser.add_argument(\n        '--config-path', \n        type=str, \n        default='config/agent_config.yaml',\n        help='Path to the configuration file (default: config/agent_config.yaml)'\n    )\n    parser.add_argument(\n        '--test-mode',\n        type=str,\n        choices=['placeholder', 'context_print', 'none'],\n        default='none',\n        help='Test mode to run: \"placeholder\" for placeholder docstrings (no LLM calls), \"context_print\" to print context before writer calls, \"none\" for normal operation'\n    )\n    parser.add_argument(\n        '--order-mode',\n        type=str,\n        choices=['topo', 'random_node', 'random_file'],\n        default='topo',\n        help='Order mode for docstring generation: \"topo\" follows dependency order (default), \"random_node\" selects random Python nodes, \"random_file\" processes files in random order'\n    )\n    parser.add_argument(\n        '--enable-web',\n        action='store_true',\n        help='Enable integration with the web interface'\n    )\n    parser.add_argument(\n        '--overwrite-docstrings',\n        action='store_true',\n        help='Overwrite existing docstrings instead of skipping them (default: False)'\n    )\n    \n    args = parser.parse_args()\n    repo_path = args.repo_path\n    config_path = args.config_path\n    test_mode = args.test_mode\n    order_mode = args.order_mode\n    overwrite_docstrings = args.overwrite_docstrings\n    \n    # Create output directory for dependency graph\n    output_dir = os.path.join(\"output\", \"dependency_graphs\")\n    os.makedirs(output_dir, exist_ok=True)\n    \n    # Extract repository name from path for creating a unique filename\n    repo_name = os.path.basename(os.path.normpath(repo_path))\n    # Create a sanitized version of the repo name (remove special characters)\n    sanitized_repo_name = ''.join(c if c.isalnum() else '_' for c in repo_name)\n    dependency_graph_path = os.path.join(output_dir, f\"{sanitized_repo_name}_dependency_graph.json\")\n    \n    # Initialize the orchestrator for docstring generation\n    orchestrator = None\n    \n    # Initialize orchestrator unless we're in placeholder test mode\n    if test_mode != 'placeholder':\n        logger.info(f\"Initializing orchestrator with config: {config_path}\")\n        # Pass the test_mode to the orchestrator if it's \"context_print\"\n        orchestrator_test_mode = test_mode if test_mode != 'none' else None\n        orchestrator = Orchestrator(repo_path=repo_path, config_path=config_path, test_mode=orchestrator_test_mode)\n        \n        # Check if the overwrite_docstrings option is in the config file\n        # If it's there, it overrides the command-line argument\n        if hasattr(orchestrator, 'config'):\n            docstring_options = orchestrator.config.get('docstring_options', {})\n            config_overwrite = docstring_options.get('overwrite_docstrings')\n            if config_overwrite is not None:\n                overwrite_docstrings = config_overwrite\n                logger.info(f\"Using config file setting for overwrite_docstrings: {overwrite_docstrings}\")\n    else:\n        logger.info(\"Running in PLACEHOLDER TEST MODE with placeholder docstrings (no LLM calls)\")\n    \n    # Parse the repository to build the dependency graph\n    logger.info(f\"Parsing repository: {repo_path}\")\n    parser = DependencyParser(repo_path)\n    components = parser.parse_repository()\n    \n    # Save the dependency graph for future reference\n    parser.save_dependency_graph(dependency_graph_path)\n    logger.info(f\"Dependency graph saved to: {dependency_graph_path}\")\n    \n    # Build the graph for traversal\n    graph = build_graph_from_components(components)\n    \n    # Create a dependency graph in the format expected by the orchestrator\n    # Dictionary mapping component paths to their dependencies\n    dependency_graph = {}\n    for component_id, deps in graph.items():\n        dependency_graph[component_id] = list(deps)\n    \n    # Perform DFS-based traversal\n    logger.info(\"Performing DFS traversal on the dependency graph (starting from nodes with no dependencies)\")\n    sorted_components = dependency_first_dfs(graph)\n    logger.info(f\"Sorted {len(sorted_components)} components for processing\")\n    \n    # Apply the selected ordering mode\n    if order_mode == 'random_node':\n        # Randomly shuffle all components\n        logger.info(\"Using random node ordering mode - shuffling all components\")\n        random.shuffle(sorted_components)\n    elif order_mode == 'random_file':\n        # Group components by file path\n        logger.info(\"Using random file ordering mode - processing files in random order\")\n        # Group components by file\n        file_to_components = defaultdict(list)\n        for component_id in sorted_components:\n            component = components.get(component_id)\n            if component:\n                file_to_components[component.file_path].append(component_id)\n        \n        # Randomly shuffle the file order but maintain the order of components within each file\n        file_paths = list(file_to_components.keys())\n        random.shuffle(file_paths)\n        \n        # Create a new ordering based on randomly shuffled files\n        sorted_components = []\n        for file_path in file_paths:\n            sorted_components.extend(file_to_components[file_path])\n    else:\n        # Default to topological order (already set in sorted_components)\n        logger.info(\"Using topological ordering mode - processing components based on dependencies\")\n    \n    # Check if web interface is enabled\n    if args.enable_web:\n        try:\n            from src.visualizer.web_bridge import patch_visualizers\n            logger.info(\"Web interface integration enabled\")\n            patch_visualizers()\n        except ImportError as e:\n            logger.warning(f\"Failed to enable web interface integration: {e}\")\n            logger.warning(\"Make sure you have installed the required web dependencies\")\n\n    # Initialize the progress visualizer\n    visualizer = ProgressVisualizer(components, sorted_components)\n    visualizer.initialize()\n    \n    # Show dependency statistics\n    visualizer.show_dependency_stats()\n    \n    # Process components in order determined by DFS traversal\n    for component_id in sorted_components:\n        component = components.get(component_id)\n        if not component:\n            logger.warning(f\"Component {component_id} not found in parsed components\")\n            continue\n        \n        # Skip __init__ methods as they don't need docstrings\n        if component.component_type == \"method\" and component_id.endswith(\".__init__\"):\n            logger.info(f\"Skipping {component_id} - __init__ methods don't need docstrings\")\n            visualizer.update(component_id, \"completed\")\n            continue\n        \n        # compute the length of docstring if exists (using white space as delimiter)\n        docstring_length = len(component.docstring.split()) if component.has_docstring else 0\n        # Skip components that already have docstrings (unless overwrite_docstrings is True)\n        if component.has_docstring and not overwrite_docstrings and docstring_length > 10:\n            logger.info(f\"Skipping {component_id} - already has docstring\")\n            visualizer.update(component_id, \"completed\")\n            continue\n        elif component.has_docstring and overwrite_docstrings:\n            logger.info(f\"Overwriting existing docstring for {component_id}\")\n        \n        # Update the visualizer\n        visualizer.update(component_id, \"processing\")\n        \n        # Log the component type\n        comp_type = component.component_type\n        logger.info(f\"Processing {comp_type}: {component_id}\")\n        \n        # Generate the docstring\n        logger.info(f\"Generating docstring for {component_id}\")\n        docstring = generate_docstring_for_component(component, orchestrator, test_mode, dependency_graph)\n        \n        # Update the file with the new docstring\n        file_path = component.file_path\n        success = set_docstring_in_file(file_path, component, docstring)\n        \n        if success:\n            logger.info(f\"Successfully updated docstring for {component_id}\")\n            visualizer.update(component_id, \"completed\")\n        else:\n            logger.error(f\"Failed to update docstring for {component_id}\")\n            visualizer.update(component_id, \"error\")\n        \n        # Re-parse the file in case the line numbers changed due to docstring insertion\n        # This is only necessary if there are more components from the same file\n        same_file_components = [\n            comp_id for comp_id in sorted_components \n            if comp_id != component_id and components[comp_id].file_path == file_path\n        ]\n        \n        if same_file_components:\n            logger.info(f\"Re-parsing file {file_path} for updated line numbers\")\n            parser = DependencyParser(repo_path)\n            updated_components = parser.parse_repository()\n            \n            # Update the components dictionary with new line numbers\n            for comp_id, comp in updated_components.items():\n                if comp_id in components:\n                    components[comp_id] = comp\n    \n    # Finalize the visualization\n    visualizer.finalize()\n    \n    # Create a more descriptive mode message based on the test mode\n    if test_mode == 'placeholder':\n        mode_str = \"PLACEHOLDER TEST MODE (no LLM calls)\"\n    elif test_mode == 'context_print':\n        mode_str = \"CONTEXT PRINT TEST MODE (with context debugging)\"\n    else:\n        mode_str = \"normal mode\"\n    \n    # Add ordering mode to the completion message\n    order_mode_str = {\n        'topo': 'topological ordering',\n        'random_node': 'random node ordering',\n        'random_file': 'random file ordering'\n    }.get(order_mode, 'unknown ordering')\n    \n    logger.info(f\"Docstring generation complete ({mode_str}, {order_mode_str})\")\n    \n    # Print usage statistics for LLM providers if available\n    if orchestrator:\n        try:\n            # Access the rate limiters from agents\n            rate_limiters = []\n            \n            for agent_name in ['reader', 'writer', 'verifier']:\n                agent = getattr(orchestrator, agent_name, None)\n                if agent and hasattr(agent, 'llm') and hasattr(agent.llm, 'rate_limiter'):\n                    rate_limiters.append(agent.llm.rate_limiter)\n            \n            # Print statistics for each rate limiter\n            if rate_limiters:\n                logger.info(\"=\" * 50)\n                logger.info(\"TOKEN USAGE AND COST STATISTICS\")\n                logger.info(\"=\" * 50)\n                \n                for limiter in rate_limiters:\n                    limiter.print_usage_stats()\n                \n                # Calculate total cost across all limiters\n                total_cost = sum(limiter.total_cost for limiter in rate_limiters)\n                logger.info(\"=\" * 50)\n                logger.info(f\"TOTAL COST: ${total_cost:.6f}\")\n                logger.info(\"=\" * 50)\n        except Exception as e:\n            logger.warning(f\"Could not print token usage statistics: {e}\")",
     "start_line": 344,
@@ -392,8 +392,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\run_web_ui.py",
     "relative_path": "DocAgent\\run_web_ui.py",
     "depends_on": [
-      "DocAgent.run_web_ui.logger",
       "DocAgent.src.web.app.create_app",
+      "DocAgent.run_web_ui.logger",
       "DocAgent.run_web_ui.check_dependencies"
     ],
     "source_code": "def main():\n    \"\"\"Parse command line arguments and start the web UI.\"\"\"\n    parser = argparse.ArgumentParser(description='Launch the DocAgent Web UI')\n    parser.add_argument('--host', default='127.0.0.1', help='Host to bind the server to')\n    parser.add_argument('--port', type=int, default=5000, help='Port to bind the server to')\n    parser.add_argument('--debug', action='store_true', help='Run in debug mode')\n    \n    args = parser.parse_args()\n    \n    # Check dependencies\n    if not check_dependencies():\n        return 1\n    \n    # Print banner\n    print(\"\\n\" + \"=\" * 80)\n    print(\"DocAgent Web Interface\".center(80))\n    print(\"=\" * 80)\n    \n    # Import and run the web app\n    try:\n        # First try to import eventlet to ensure it's properly initialized\n        import eventlet\n        eventlet.monkey_patch()\n        \n        from src.web.app import create_app\n        \n        app, socketio = create_app(debug=args.debug)\n        \n        logger.info(f\"Starting DocAgent Web UI at: http://{args.host}:{args.port}\")\n        logger.info(\"Press Ctrl+C to stop the server\")\n        \n        # Start the server\n        socketio.run(app, host=args.host, port=args.port, debug=args.debug, allow_unsafe_werkzeug=True)\n        \n        return 0\n    except ImportError as e:\n        logger.error(f\"Error importing web application: {e}\")\n        logger.error(\"Make sure the src/web directory exists and contains the necessary files.\")\n        return 1\n    except Exception as e:\n        logger.error(f\"Error running web application: {e}\")\n        return 1",
@@ -482,10 +482,10 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\setup.py",
     "relative_path": "DocAgent\\setup.py",
     "depends_on": [
-      "DocAgent.setup.visualization_requires",
-      "DocAgent.setup.dev_requires",
       "DocAgent.setup.cuda_requires",
-      "DocAgent.setup.web_requires"
+      "DocAgent.setup.dev_requires",
+      "DocAgent.setup.web_requires",
+      "DocAgent.setup.visualization_requires"
     ],
     "source_code": "all_requires = dev_requires + web_requires + visualization_requires + cuda_requires",
     "start_line": 40,
@@ -499,8 +499,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\data\\raw_test_repo\\example.py",
     "relative_path": "DocAgent\\data\\raw_test_repo\\example.py",
     "depends_on": [
-      "DocAgent.data.raw_test_repo.models.product.Item",
       "DocAgent.data.raw_test_repo.vending_machine.SysErr",
+      "DocAgent.data.raw_test_repo.models.product.Item",
       "DocAgent.data.raw_test_repo.vending_machine.Sys"
     ],
     "source_code": "def main():\n    s = Sys()\n    items = [Item(code='D1', label='Drink1', val=1.5, count=10, grp='d',\n        exp=datetime.now() + timedelta(days=90)), Item(code='S1', label=\n        'Snack1', val=1.0, count=15, grp='s', exp=datetime.now() +\n        timedelta(days=30)), Item(code='S2', label='Snack2', val=2.0, count\n        =8, grp='s', exp=datetime.now() + timedelta(days=60))]\n    for i, item in enumerate(items):\n        s.store.put(item, i)\n    try:\n        print('Items:')\n        for pos, item in s.ls():\n            print(f'Pos {pos}: {item.label} - ${item.val:.2f}')\n        pos = 0\n        print('\\nAdding $2.00...')\n        s.add_money(Decimal('2.00'))\n        item, ret = s.buy(pos)\n        print(f'\\nBought: {item.label}')\n        if ret:\n            print(f'Return: ${ret:.2f}')\n        print('\\nUpdated Items:')\n        for pos, item in s.ls():\n            print(\n                f'Pos {pos}: {item.label} - ${item.val:.2f} (Count: {item.count})'\n                )\n    except SysErr as e:\n        print(f'Err: {str(e)}')",
@@ -528,17 +528,17 @@
     "relative_path": "DocAgent\\data\\raw_test_repo\\vending_machine.py",
     "depends_on": [
       "DocAgent.data.raw_test_repo.payment.payment_processor.Handler",
-      "DocAgent.data.raw_test_repo.vending_machine.Sys.add_money",
-      "DocAgent.data.raw_test_repo.payment.payment_processor.TxStatus",
       "DocAgent.data.raw_test_repo.inventory.inventory_manager.Store",
-      "DocAgent.data.raw_test_repo.models.product.Item",
-      "DocAgent.data.raw_test_repo.payment.payment_processor.Tx",
-      "DocAgent.data.raw_test_repo.vending_machine.SysErr",
-      "DocAgent.data.raw_test_repo.payment.payment_processor.Cash",
-      "DocAgent.data.raw_test_repo.vending_machine.Sys.pick",
-      "DocAgent.data.raw_test_repo.vending_machine.Sys.cancel",
       "DocAgent.data.raw_test_repo.vending_machine.Sys.buy",
-      "DocAgent.data.raw_test_repo.vending_machine.Sys.ls"
+      "DocAgent.data.raw_test_repo.payment.payment_processor.Tx",
+      "DocAgent.data.raw_test_repo.vending_machine.Sys.ls",
+      "DocAgent.data.raw_test_repo.payment.payment_processor.Cash",
+      "DocAgent.data.raw_test_repo.vending_machine.Sys.add_money",
+      "DocAgent.data.raw_test_repo.models.product.Item",
+      "DocAgent.data.raw_test_repo.vending_machine.SysErr",
+      "DocAgent.data.raw_test_repo.payment.payment_processor.TxStatus",
+      "DocAgent.data.raw_test_repo.vending_machine.Sys.cancel",
+      "DocAgent.data.raw_test_repo.vending_machine.Sys.pick"
     ],
     "source_code": "class Sys",
     "start_line": 13,
@@ -552,10 +552,10 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\data\\raw_test_repo\\vending_machine.py",
     "relative_path": "DocAgent\\data\\raw_test_repo\\vending_machine.py",
     "depends_on": [
+      "DocAgent.data.raw_test_repo.payment.payment_processor.Cash",
       "DocAgent.data.raw_test_repo.payment.payment_processor.Handler",
-      "DocAgent.data.raw_test_repo.inventory.inventory_manager.Store",
       "DocAgent.data.raw_test_repo.payment.payment_processor.Tx",
-      "DocAgent.data.raw_test_repo.payment.payment_processor.Cash"
+      "DocAgent.data.raw_test_repo.inventory.inventory_manager.Store"
     ],
     "source_code": "def __init__(self, h: Optional[Handler]=None):\n        self.store = Store()\n        self.h = h or Cash()\n        self._tx: Optional[Tx] = None",
     "start_line": 15,
@@ -583,8 +583,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\data\\raw_test_repo\\vending_machine.py",
     "relative_path": "DocAgent\\data\\raw_test_repo\\vending_machine.py",
     "depends_on": [
-      "DocAgent.data.raw_test_repo.models.product.Item",
-      "DocAgent.data.raw_test_repo.vending_machine.SysErr"
+      "DocAgent.data.raw_test_repo.vending_machine.SysErr",
+      "DocAgent.data.raw_test_repo.models.product.Item"
     ],
     "source_code": "def pick(self, pos: int) ->Optional[Item]:\n        item = self.store.get_at(pos)\n        if not item:\n            raise SysErr('invalid pos')\n        if not item.check():\n            raise SysErr('unavailable')\n        return item",
     "start_line": 28,
@@ -598,8 +598,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\data\\raw_test_repo\\vending_machine.py",
     "relative_path": "DocAgent\\data\\raw_test_repo\\vending_machine.py",
     "depends_on": [
-      "DocAgent.data.raw_test_repo.vending_machine.SysErr",
-      "DocAgent.data.raw_test_repo.payment.payment_processor.Cash"
+      "DocAgent.data.raw_test_repo.payment.payment_processor.Cash",
+      "DocAgent.data.raw_test_repo.vending_machine.SysErr"
     ],
     "source_code": "def add_money(self, amt: Decimal) ->None:\n        if not isinstance(self.h, Cash):\n            raise SysErr('cash not supported')\n        self.h.add(amt)",
     "start_line": 36,
@@ -614,8 +614,8 @@
     "relative_path": "DocAgent\\data\\raw_test_repo\\vending_machine.py",
     "depends_on": [
       "DocAgent.data.raw_test_repo.payment.payment_processor.Cash",
-      "DocAgent.data.raw_test_repo.models.product.Item",
       "DocAgent.data.raw_test_repo.vending_machine.SysErr",
+      "DocAgent.data.raw_test_repo.models.product.Item",
       "DocAgent.data.raw_test_repo.payment.payment_processor.TxStatus"
     ],
     "source_code": "def buy(self, pos: int) ->Tuple[Item, Optional[Decimal]]:\n        item = self.pick(pos)\n        tx = self.h.proc(Decimal(str(item.val)))\n        self._tx = tx\n        if tx.st != TxStatus.DONE:\n            raise SysErr(tx.msg or 'tx failed')\n        if not item.mod():\n            self.h.rev(tx)\n            raise SysErr('dispense failed')\n        ret = None\n        if isinstance(self.h, Cash):\n            ret = self.h.ret()\n        return item, ret",
@@ -630,8 +630,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\data\\raw_test_repo\\vending_machine.py",
     "relative_path": "DocAgent\\data\\raw_test_repo\\vending_machine.py",
     "depends_on": [
-      "DocAgent.data.raw_test_repo.vending_machine.SysErr",
-      "DocAgent.data.raw_test_repo.payment.payment_processor.Cash"
+      "DocAgent.data.raw_test_repo.payment.payment_processor.Cash",
+      "DocAgent.data.raw_test_repo.vending_machine.SysErr"
     ],
     "source_code": "def cancel(self) ->Optional[Decimal]:\n        if not self._tx:\n            raise SysErr('no tx')\n        ok = self.h.rev(self._tx)\n        if not ok:\n            raise SysErr('rev failed')\n        ret = None\n        if isinstance(self.h, Cash):\n            ret = self.h.ret()\n        self._tx = None\n        return ret",
     "start_line": 55,
@@ -645,13 +645,13 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\data\\raw_test_repo\\inventory\\inventory_manager.py",
     "relative_path": "DocAgent\\data\\raw_test_repo\\inventory\\inventory_manager.py",
     "depends_on": [
-      "DocAgent.data.raw_test_repo.inventory.inventory_manager.Store.rm",
-      "DocAgent.data.raw_test_repo.inventory.inventory_manager.Store.put",
       "DocAgent.data.raw_test_repo.inventory.inventory_manager.Store.get",
-      "DocAgent.data.raw_test_repo.models.product.Item",
       "DocAgent.data.raw_test_repo.inventory.inventory_manager.Store.get_at",
       "DocAgent.data.raw_test_repo.inventory.inventory_manager.Store.find",
-      "DocAgent.data.raw_test_repo.inventory.inventory_manager.Store.ls"
+      "DocAgent.data.raw_test_repo.models.product.Item",
+      "DocAgent.data.raw_test_repo.inventory.inventory_manager.Store.ls",
+      "DocAgent.data.raw_test_repo.inventory.inventory_manager.Store.rm",
+      "DocAgent.data.raw_test_repo.inventory.inventory_manager.Store.put"
     ],
     "source_code": "class Store",
     "start_line": 6,
@@ -824,9 +824,9 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\data\\raw_test_repo\\payment\\payment_processor.py",
     "relative_path": "DocAgent\\data\\raw_test_repo\\payment\\payment_processor.py",
     "depends_on": [
+      "DocAgent.data.raw_test_repo.payment.payment_processor.Tx",
       "DocAgent.data.raw_test_repo.payment.payment_processor.Handler.proc",
-      "DocAgent.data.raw_test_repo.payment.payment_processor.Handler.rev",
-      "DocAgent.data.raw_test_repo.payment.payment_processor.Tx"
+      "DocAgent.data.raw_test_repo.payment.payment_processor.Handler.rev"
     ],
     "source_code": "class Handler",
     "start_line": 25,
@@ -869,11 +869,11 @@
     "relative_path": "DocAgent\\data\\raw_test_repo\\payment\\payment_processor.py",
     "depends_on": [
       "DocAgent.data.raw_test_repo.payment.payment_processor.Handler",
-      "DocAgent.data.raw_test_repo.payment.payment_processor.Cash.add",
-      "DocAgent.data.raw_test_repo.payment.payment_processor.Cash.rev",
-      "DocAgent.data.raw_test_repo.payment.payment_processor.TxStatus",
       "DocAgent.data.raw_test_repo.payment.payment_processor.Tx",
+      "DocAgent.data.raw_test_repo.payment.payment_processor.Cash.rev",
       "DocAgent.data.raw_test_repo.payment.payment_processor.Cash.proc",
+      "DocAgent.data.raw_test_repo.payment.payment_processor.TxStatus",
+      "DocAgent.data.raw_test_repo.payment.payment_processor.Cash.add",
       "DocAgent.data.raw_test_repo.payment.payment_processor.Cash.ret"
     ],
     "source_code": "class Cash",
@@ -954,9 +954,9 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\data\\raw_test_repo_simple\\helper.py",
     "relative_path": "DocAgent\\data\\raw_test_repo_simple\\helper.py",
     "depends_on": [
-      "DocAgent.data.raw_test_repo_simple.helper.HelperClass.process_data",
-      "DocAgent.data.raw_test_repo_simple.helper.HelperClass.get_result",
       "DocAgent.data.raw_test_repo_simple.helper.HelperClass._internal_process",
+      "DocAgent.data.raw_test_repo_simple.helper.HelperClass.get_result",
+      "DocAgent.data.raw_test_repo_simple.helper.HelperClass.process_data",
       "DocAgent.data.raw_test_repo_simple.helper.DataProcessor"
     ],
     "source_code": "class HelperClass",
@@ -1021,8 +1021,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\data\\raw_test_repo_simple\\helper.py",
     "relative_path": "DocAgent\\data\\raw_test_repo_simple\\helper.py",
     "depends_on": [
-      "DocAgent.data.raw_test_repo_simple.helper.DataProcessor.process",
-      "DocAgent.data.raw_test_repo_simple.helper.DataProcessor._internal_process"
+      "DocAgent.data.raw_test_repo_simple.helper.DataProcessor._internal_process",
+      "DocAgent.data.raw_test_repo_simple.helper.DataProcessor.process"
     ],
     "source_code": "class DataProcessor",
     "start_line": 52,
@@ -1088,10 +1088,10 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\data\\raw_test_repo_simple\\processor.py",
     "relative_path": "DocAgent\\data\\raw_test_repo_simple\\processor.py",
     "depends_on": [
-      "DocAgent.data.raw_test_repo_simple.processor.AdvancedProcessor.run",
-      "DocAgent.data.raw_test_repo_simple.processor.AdvancedProcessor.process_result",
       "DocAgent.data.raw_test_repo_simple.main.utility_function",
-      "DocAgent.data.raw_test_repo_simple.helper.HelperClass"
+      "DocAgent.data.raw_test_repo_simple.processor.AdvancedProcessor.process_result",
+      "DocAgent.data.raw_test_repo_simple.helper.HelperClass",
+      "DocAgent.data.raw_test_repo_simple.processor.AdvancedProcessor.run"
     ],
     "source_code": "class AdvancedProcessor",
     "start_line": 6,
@@ -1291,10 +1291,10 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\analyze_helpfulness_significance.py",
     "relative_path": "DocAgent\\src\\analyze_helpfulness_significance.py",
     "depends_on": [
-      "DocAgent.src.analyze_helpfulness_significance.update_markdown_report",
       "DocAgent.src.analyze_helpfulness_significance.run_significance_tests",
-      "DocAgent.src.analyze_helpfulness_significance.load_results",
-      "DocAgent.src.analyze_helpfulness_significance.format_significance_markdown"
+      "DocAgent.src.analyze_helpfulness_significance.format_significance_markdown",
+      "DocAgent.src.analyze_helpfulness_significance.update_markdown_report",
+      "DocAgent.src.analyze_helpfulness_significance.load_results"
     ],
     "source_code": "def main():\n    parser = argparse.ArgumentParser(description=\"Analyze statistical significance of docstring helpfulness\")\n    parser.add_argument(\"--results-path\", type=str, \n                        default=\"experiments/eval/results/helpfulness/helpfulness_evaluation_results.json\",\n                        help=\"Path to the helpfulness evaluation results JSON\")\n    parser.add_argument(\"--stats-path\", type=str, \n                        default=\"experiments/eval/results/helpfulness/helpfulness_evaluation_stats.md\",\n                        help=\"Path to the helpfulness evaluation stats markdown file\")\n    parser.add_argument(\"--output-dir\", type=str, \n                        default=\"experiments/eval/results/helpfulness\",\n                        help=\"Directory to store significance test results\")\n    args = parser.parse_args()\n    \n    # Check if result file exists\n    if not os.path.exists(args.results_path):\n        print(f\"Error: Results file not found at {args.results_path}\")\n        return\n    \n    # Load results\n    results = load_results(args.results_path)\n    \n    # Run significance tests\n    significance_results = run_significance_tests(results)\n    \n    # Format results as markdown\n    significance_md = format_significance_markdown(significance_results)\n    \n    # Save significance test results as separate file\n    significance_path = os.path.join(args.output_dir, \"significance_tests.md\")\n    with open(significance_path, 'w') as f:\n        f.write(significance_md)\n    \n    # Update the stats markdown file\n    if os.path.exists(args.stats_path):\n        update_markdown_report(args.stats_path, significance_md)\n    \n    print(f\"Significance test results saved to {significance_path}\")\n    if os.path.exists(args.stats_path):\n        print(f\"Updated stats report with significance tests at {args.stats_path}\")",
     "start_line": 205,
@@ -1334,15 +1334,15 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\agent\\base.py",
     "relative_path": "DocAgent\\src\\agent\\base.py",
     "depends_on": [
-      "DocAgent.src.agent.base.BaseAgent.add_to_memory",
-      "DocAgent.src.agent.base.BaseAgent.process",
-      "DocAgent.src.agent.base.BaseAgent.refresh_memory",
-      "DocAgent.src.agent.base.BaseAgent._initialize_llm",
       "DocAgent.src.agent.base.BaseAgent.generate_response",
-      "DocAgent.src.agent.llm.factory.LLMFactory",
+      "DocAgent.src.agent.base.BaseAgent.add_to_memory",
       "DocAgent.src.agent.base.BaseAgent.memory",
+      "DocAgent.src.agent.llm.factory.LLMFactory",
+      "DocAgent.src.agent.llm.base.BaseLLM",
       "DocAgent.src.agent.base.BaseAgent.clear_memory",
-      "DocAgent.src.agent.llm.base.BaseLLM"
+      "DocAgent.src.agent.base.BaseAgent._initialize_llm",
+      "DocAgent.src.agent.base.BaseAgent.process",
+      "DocAgent.src.agent.base.BaseAgent.refresh_memory"
     ],
     "source_code": "class BaseAgent",
     "start_line": 10,
@@ -1455,9 +1455,9 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\agent\\orchestrator.py",
     "relative_path": "DocAgent\\src\\agent\\orchestrator.py",
     "depends_on": [
-      "DocAgent.src.agent.orchestrator.DummyVisualizer.update",
       "DocAgent.src.agent.orchestrator.DummyVisualizer.set_current_component",
-      "DocAgent.src.agent.orchestrator.DummyVisualizer.reset"
+      "DocAgent.src.agent.orchestrator.DummyVisualizer.reset",
+      "DocAgent.src.agent.orchestrator.DummyVisualizer.update"
     ],
     "source_code": "class DummyVisualizer",
     "start_line": 16,
@@ -1507,16 +1507,16 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\agent\\orchestrator.py",
     "relative_path": "DocAgent\\src\\agent\\orchestrator.py",
     "depends_on": [
-      "DocAgent.src.agent.orchestrator.Orchestrator._constrain_context_length",
       "DocAgent.src.agent.base.BaseAgent",
-      "DocAgent.src.agent.orchestrator.Orchestrator._update_context",
-      "DocAgent.src.agent.searcher.Searcher",
-      "DocAgent.src.agent.verifier.Verifier",
-      "DocAgent.src.agent.reader.Reader",
       "DocAgent.src.agent.orchestrator.Orchestrator._parse_verifier_response",
       "DocAgent.src.agent.orchestrator.DummyVisualizer",
+      "DocAgent.src.agent.orchestrator.Orchestrator._constrain_context_length",
+      "DocAgent.src.agent.orchestrator.Orchestrator._update_context",
+      "DocAgent.src.agent.orchestrator.Orchestrator.process",
       "DocAgent.src.agent.writer.Writer",
-      "DocAgent.src.agent.orchestrator.Orchestrator.process"
+      "DocAgent.src.agent.searcher.Searcher",
+      "DocAgent.src.agent.verifier.Verifier",
+      "DocAgent.src.agent.reader.Reader"
     ],
     "source_code": "class Orchestrator",
     "start_line": 31,
@@ -1530,11 +1530,11 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\agent\\orchestrator.py",
     "relative_path": "DocAgent\\src\\agent\\orchestrator.py",
     "depends_on": [
+      "DocAgent.src.agent.orchestrator.DummyVisualizer",
+      "DocAgent.src.agent.writer.Writer",
       "DocAgent.src.agent.searcher.Searcher",
       "DocAgent.src.agent.verifier.Verifier",
-      "DocAgent.src.agent.reader.Reader",
-      "DocAgent.src.agent.orchestrator.DummyVisualizer",
-      "DocAgent.src.agent.writer.Writer"
+      "DocAgent.src.agent.reader.Reader"
     ],
     "source_code": "def __init__(self, repo_path: str, config_path: Optional[str] = None, test_mode: Optional[str] = None):\n        \"\"\"Initialize the Orchestrator agent and its sub-agents.\n        \n        Args:\n            repo_path: Path to the repository being analyzed\n            config_path: Optional path to the configuration file\n            test_mode: Optional test mode to run only specific components. Values: \"reader_searcher\", \"context_print\" or None\n        \"\"\"\n        super().__init__(\"Orchestrator\")\n        self.repo_path = repo_path\n        self.context = \"\"\n        self.test_mode = test_mode\n        \n        # Load configuration\n        self.config = {}\n        if config_path:\n            with open(config_path, 'r') as f:\n                self.config = yaml.safe_load(f)\n        \n        # Get flow control parameters with defaults\n        flow_config = self.config.get('flow_control', {})\n        self.max_reader_search_attempts = flow_config.get('max_reader_search_attempts', 4)\n        self.max_verifier_rejections = flow_config.get('max_verifier_rejections', 3)\n        self.status_sleep_time = flow_config.get('status_sleep_time', 3)\n        \n        # Check model type for context constraints\n        llm_config = self.config.get('llm', {})\n        self.model_type = llm_config.get('type', 'openai')\n        \n        # Add max_input_tokens to config for context length constraint\n        if 'max_input_tokens' not in self.config:\n            self.config['max_input_tokens'] = llm_config.get('max_input_tokens', 10000)\n        \n        # Initialize visualization - use dummy visualizer for \"context_print\" test mode\n        if test_mode == \"context_print\":\n            self.visualizer = DummyVisualizer()\n        else:\n            self.visualizer = StatusVisualizer()\n        \n        # Initialize all sub-agents\n        self.reader = Reader(config_path=config_path)\n        self.searcher = Searcher(repo_path, config_path=config_path)\n        \n        # Only initialize writer and verifier if not in reader_searcher test mode\n        if test_mode != \"reader_searcher\":\n            self.writer = Writer(config_path=config_path)\n            self.verifier = Verifier(config_path=config_path)",
     "start_line": 34,
@@ -1620,8 +1620,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\agent\\reader.py",
     "relative_path": "DocAgent\\src\\agent\\reader.py",
     "depends_on": [
-      "DocAgent.src.agent.reader.Reader.process",
-      "DocAgent.src.agent.base.BaseAgent"
+      "DocAgent.src.agent.base.BaseAgent",
+      "DocAgent.src.agent.reader.Reader.process"
     ],
     "source_code": "class Reader",
     "start_line": 25,
@@ -1671,14 +1671,14 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\agent\\searcher.py",
     "relative_path": "DocAgent\\src\\agent\\searcher.py",
     "depends_on": [
-      "DocAgent.src.agent.tool.perplexity_api.PerplexityAPI",
-      "DocAgent.src.agent.base.BaseAgent",
-      "DocAgent.src.agent.searcher.Searcher._gather_internal_info",
       "DocAgent.src.agent.searcher.Searcher._parse_reader_response",
-      "DocAgent.src.agent.searcher.Searcher._parse_comma_list",
-      "DocAgent.src.agent.searcher.ParsedInfoRequest",
+      "DocAgent.src.agent.base.BaseAgent",
+      "DocAgent.src.agent.tool.perplexity_api.PerplexityAPI",
+      "DocAgent.src.agent.searcher.Searcher._gather_internal_info",
       "DocAgent.src.agent.searcher.Searcher.process",
+      "DocAgent.src.agent.searcher.ParsedInfoRequest",
       "DocAgent.src.agent.searcher.Searcher._gather_external_info",
+      "DocAgent.src.agent.searcher.Searcher._parse_comma_list",
       "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer"
     ],
     "source_code": "class Searcher",
@@ -1773,8 +1773,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\agent\\verifier.py",
     "relative_path": "DocAgent\\src\\agent\\verifier.py",
     "depends_on": [
-      "DocAgent.src.agent.verifier.Verifier.process",
-      "DocAgent.src.agent.base.BaseAgent"
+      "DocAgent.src.agent.base.BaseAgent",
+      "DocAgent.src.agent.verifier.Verifier.process"
     ],
     "source_code": "class Verifier",
     "start_line": 7,
@@ -1827,12 +1827,12 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\agent\\writer.py",
     "relative_path": "DocAgent\\src\\agent\\writer.py",
     "depends_on": [
-      "DocAgent.src.agent.writer.Writer.process",
       "DocAgent.src.agent.writer.Writer.extract_docstring",
       "DocAgent.src.agent.base.BaseAgent",
-      "DocAgent.src.agent.writer.Writer.get_custom_prompt",
+      "DocAgent.src.agent.writer.Writer.process",
       "DocAgent.src.agent.writer.Writer.is_class_component",
-      "DocAgent.src.agent.writer.Writer"
+      "DocAgent.src.agent.writer.Writer",
+      "DocAgent.src.agent.writer.Writer.get_custom_prompt"
     ],
     "source_code": "class Writer",
     "start_line": 7,
@@ -1934,8 +1934,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\agent\\llm\\base.py",
     "relative_path": "DocAgent\\src\\agent\\llm\\base.py",
     "depends_on": [
-      "DocAgent.src.agent.llm.base.BaseLLM.format_message",
-      "DocAgent.src.agent.llm.base.BaseLLM.generate"
+      "DocAgent.src.agent.llm.base.BaseLLM.generate",
+      "DocAgent.src.agent.llm.base.BaseLLM.format_message"
     ],
     "source_code": "class BaseLLM",
     "start_line": 5,
@@ -1973,13 +1973,13 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\agent\\llm\\claude_llm.py",
     "relative_path": "DocAgent\\src\\agent\\llm\\claude_llm.py",
     "depends_on": [
-      "DocAgent.src.agent.llm.claude_llm.ClaudeLLM._count_tokens",
-      "DocAgent.src.agent.llm.claude_llm.ClaudeLLM.generate",
-      "DocAgent.src.agent.llm.claude_llm.ClaudeLLM.format_message",
       "DocAgent.src.agent.llm.claude_llm.ClaudeLLM._count_messages_tokens",
+      "DocAgent.src.agent.llm.base.BaseLLM",
       "DocAgent.src.agent.llm.rate_limiter.RateLimiter",
+      "DocAgent.src.agent.llm.claude_llm.ClaudeLLM._count_tokens",
       "DocAgent.src.agent.llm.claude_llm.ClaudeLLM._convert_to_claude_message",
-      "DocAgent.src.agent.llm.base.BaseLLM"
+      "DocAgent.src.agent.llm.claude_llm.ClaudeLLM.format_message",
+      "DocAgent.src.agent.llm.claude_llm.ClaudeLLM.generate"
     ],
     "source_code": "class ClaudeLLM",
     "start_line": 8,
@@ -2067,14 +2067,14 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\agent\\llm\\factory.py",
     "relative_path": "DocAgent\\src\\agent\\llm\\factory.py",
     "depends_on": [
-      "DocAgent.src.agent.llm.openai_llm.OpenAILLM",
+      "DocAgent.src.agent.llm.factory.LLMFactory",
+      "DocAgent.src.agent.llm.base.BaseLLM",
       "DocAgent.src.agent.llm.claude_llm.ClaudeLLM",
+      "DocAgent.src.agent.llm.factory.LLMFactory.load_config",
+      "DocAgent.src.agent.llm.openai_llm.OpenAILLM",
       "DocAgent.src.agent.llm.factory.LLMFactory.create_llm",
       "DocAgent.src.agent.llm.gemini_llm.GeminiLLM",
-      "DocAgent.src.agent.llm.factory.LLMFactory",
-      "DocAgent.src.agent.llm.huggingface_llm.HuggingFaceLLM",
-      "DocAgent.src.agent.llm.base.BaseLLM",
-      "DocAgent.src.agent.llm.factory.LLMFactory.load_config"
+      "DocAgent.src.agent.llm.huggingface_llm.HuggingFaceLLM"
     ],
     "source_code": "class LLMFactory",
     "start_line": 12,
@@ -2088,12 +2088,12 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\agent\\llm\\factory.py",
     "relative_path": "DocAgent\\src\\agent\\llm\\factory.py",
     "depends_on": [
-      "DocAgent.src.agent.llm.openai_llm.OpenAILLM",
-      "DocAgent.src.agent.llm.claude_llm.ClaudeLLM",
-      "DocAgent.src.agent.llm.gemini_llm.GeminiLLM",
       "DocAgent.src.agent.llm.factory.LLMFactory",
-      "DocAgent.src.agent.llm.huggingface_llm.HuggingFaceLLM",
-      "DocAgent.src.agent.llm.base.BaseLLM"
+      "DocAgent.src.agent.llm.base.BaseLLM",
+      "DocAgent.src.agent.llm.claude_llm.ClaudeLLM",
+      "DocAgent.src.agent.llm.openai_llm.OpenAILLM",
+      "DocAgent.src.agent.llm.gemini_llm.GeminiLLM",
+      "DocAgent.src.agent.llm.huggingface_llm.HuggingFaceLLM"
     ],
     "source_code": "def create_llm(config: Dict[str, Any]) -> BaseLLM:\n        \"\"\"Create an LLM instance based on configuration.\n        \n        Args:\n            config: Configuration dictionary containing LLM settings\n            \n        Returns:\n            An instance of BaseLLM\n            \n        Raises:\n            ValueError: If the LLM type is not supported\n        \"\"\"\n        llm_type = config[\"type\"].lower()\n        model = config.get(\"model\")\n        \n        if not model:\n            raise ValueError(\"Model must be specified in the config file\")\n        \n        # Extract rate limit settings from config\n        # First check if there are specific rate limits in the LLM config\n        rate_limits = config.get(\"rate_limits\", {})\n        \n        # If not, check if there are global rate limits for this provider type\n        global_config = LLMFactory.load_config()\n        if not rate_limits and \"rate_limits\" in global_config:\n            # Map LLM types to provider names in rate_limits section\n            provider_map = {\n                \"openai\": \"openai\",\n                \"claude\": \"claude\",\n                \"gemini\": \"gemini\"\n            }\n            provider_key = provider_map.get(llm_type, llm_type)\n            provider_limits = global_config.get(\"rate_limits\", {}).get(provider_key, {})\n            if provider_limits:\n                rate_limits = provider_limits\n        \n        if llm_type == \"openai\":\n            return OpenAILLM(\n                api_key=config[\"api_key\"],\n                model=model,\n                rate_limits=rate_limits\n            )\n        elif llm_type == \"claude\":\n            return ClaudeLLM(\n                api_key=config[\"api_key\"],\n                model=model,\n                rate_limits=rate_limits\n            )\n        elif llm_type == \"gemini\":\n            return GeminiLLM(\n                api_key=config[\"api_key\"],\n                model=model,\n                rate_limits=rate_limits\n            )\n        elif llm_type == \"huggingface\":\n            return HuggingFaceLLM(\n                model_name=model,\n                device=config.get(\"device\", \"cuda\"),\n                torch_dtype=config.get(\"torch_dtype\", \"float16\")\n            )\n        else:\n            raise ValueError(f\"Unsupported LLM type: {llm_type}\")",
     "start_line": 16,
@@ -2119,13 +2119,13 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\agent\\llm\\gemini_llm.py",
     "relative_path": "DocAgent\\src\\agent\\llm\\gemini_llm.py",
     "depends_on": [
-      "DocAgent.src.agent.llm.gemini_llm.GeminiLLM._convert_messages_to_gemini_format",
-      "DocAgent.src.agent.llm.gemini_llm.GeminiLLM.generate",
-      "DocAgent.src.agent.llm.gemini_llm.GeminiLLM.format_message",
       "DocAgent.src.agent.llm.gemini_llm.GeminiLLM._count_messages_tokens",
-      "DocAgent.src.agent.llm.rate_limiter.RateLimiter",
+      "DocAgent.src.agent.llm.base.BaseLLM",
       "DocAgent.src.agent.llm.gemini_llm.GeminiLLM._count_tokens",
-      "DocAgent.src.agent.llm.base.BaseLLM"
+      "DocAgent.src.agent.llm.rate_limiter.RateLimiter",
+      "DocAgent.src.agent.llm.gemini_llm.GeminiLLM._convert_messages_to_gemini_format",
+      "DocAgent.src.agent.llm.gemini_llm.GeminiLLM.format_message",
+      "DocAgent.src.agent.llm.gemini_llm.GeminiLLM.generate"
     ],
     "source_code": "class GeminiLLM",
     "start_line": 8,
@@ -2213,12 +2213,12 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\agent\\llm\\huggingface_llm.py",
     "relative_path": "DocAgent\\src\\agent\\llm\\huggingface_llm.py",
     "depends_on": [
-      "DocAgent.src.agent.llm.huggingface_llm.HuggingFaceLLM._count_tokens",
-      "DocAgent.src.agent.llm.huggingface_llm.HuggingFaceLLM._messages_to_prompt",
-      "DocAgent.src.agent.llm.huggingface_llm.HuggingFaceLLM.generate",
+      "DocAgent.src.agent.llm.base.BaseLLM",
       "DocAgent.src.agent.llm.huggingface_llm.HuggingFaceLLM.format_message",
+      "DocAgent.src.agent.llm.huggingface_llm.HuggingFaceLLM.generate",
+      "DocAgent.src.agent.llm.huggingface_llm.HuggingFaceLLM._messages_to_prompt",
       "DocAgent.src.agent.llm.huggingface_llm.HuggingFaceLLM._truncate_messages",
-      "DocAgent.src.agent.llm.base.BaseLLM"
+      "DocAgent.src.agent.llm.huggingface_llm.HuggingFaceLLM._count_tokens"
     ],
     "source_code": "class HuggingFaceLLM",
     "start_line": 8,
@@ -2304,12 +2304,12 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\agent\\llm\\openai_llm.py",
     "relative_path": "DocAgent\\src\\agent\\llm\\openai_llm.py",
     "depends_on": [
-      "DocAgent.src.agent.llm.openai_llm.OpenAILLM._count_tokens",
       "DocAgent.src.agent.llm.base.BaseLLM",
       "DocAgent.src.agent.llm.openai_llm.OpenAILLM.generate",
+      "DocAgent.src.agent.llm.openai_llm.OpenAILLM._count_messages_tokens",
       "DocAgent.src.agent.llm.rate_limiter.RateLimiter",
-      "DocAgent.src.agent.llm.openai_llm.OpenAILLM.format_message",
-      "DocAgent.src.agent.llm.openai_llm.OpenAILLM._count_messages_tokens"
+      "DocAgent.src.agent.llm.openai_llm.OpenAILLM._count_tokens",
+      "DocAgent.src.agent.llm.openai_llm.OpenAILLM.format_message"
     ],
     "source_code": "class OpenAILLM",
     "start_line": 8,
@@ -2397,12 +2397,12 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\agent\\llm\\rate_limiter.py",
     "relative_path": "DocAgent\\src\\agent\\llm\\rate_limiter.py",
     "depends_on": [
-      "DocAgent.src.agent.llm.rate_limiter.RateLimiter._get_usage_count",
-      "DocAgent.src.agent.llm.rate_limiter.RateLimiter._clean_old_entries",
-      "DocAgent.src.agent.llm.rate_limiter.RateLimiter.wait_if_needed",
-      "DocAgent.src.agent.llm.rate_limiter.logger",
+      "DocAgent.src.agent.llm.rate_limiter.RateLimiter.record_request",
       "DocAgent.src.agent.llm.rate_limiter.RateLimiter.print_usage_stats",
-      "DocAgent.src.agent.llm.rate_limiter.RateLimiter.record_request"
+      "DocAgent.src.agent.llm.rate_limiter.RateLimiter.wait_if_needed",
+      "DocAgent.src.agent.llm.rate_limiter.RateLimiter._clean_old_entries",
+      "DocAgent.src.agent.llm.rate_limiter.RateLimiter._get_usage_count",
+      "DocAgent.src.agent.llm.rate_limiter.logger"
     ],
     "source_code": "class RateLimiter",
     "start_line": 13,
@@ -2506,8 +2506,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\agent\\tool\\ast.py",
     "relative_path": "DocAgent\\src\\agent\\tool\\ast.py",
     "depends_on": [
-      "DocAgent.src.agent.tool.ast.ASTUtility._is_code_similar",
-      "DocAgent.src.agent.tool.ast.ASTUtility._get_component_name_from_code"
+      "DocAgent.src.agent.tool.ast.ASTUtility._get_component_name_from_code",
+      "DocAgent.src.agent.tool.ast.ASTUtility._is_code_similar"
     ],
     "source_code": "class ASTUtility",
     "start_line": 8,
@@ -2583,23 +2583,23 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\agent\\tool\\ast.py",
     "relative_path": "DocAgent\\src\\agent\\tool\\ast.py",
     "depends_on": [
-      "DocAgent.src.agent.tool.ast.ASTUtility",
-      "DocAgent.src.agent.tool.ast.CallGraphBuilder.get_child_method",
-      "DocAgent.src.agent.tool.ast.CallGraphBuilder._resolve_instance_type",
-      "DocAgent.src.agent.tool.ast.CallGraphBuilder._parse_file",
       "DocAgent.src.agent.tool.ast.CallGraphBuilder._is_method",
-      "DocAgent.src.agent.tool.ast.CallGraphBuilder._get_class_node",
-      "DocAgent.src.agent.tool.ast.CallGraphBuilder.get_child_class",
-      "DocAgent.src.agent.tool.ast.CallGraphBuilder._get_class_of_method",
-      "DocAgent.src.agent.tool.ast.CallGraphBuilder.get_child_class_init",
-      "DocAgent.src.agent.tool.ast.CallGraphBuilder._get_node_code",
-      "DocAgent.src.agent.tool.ast.CallGraphBuilder.get_child_function",
       "DocAgent.src.agent.tool.ast.CallGraphBuilder._build_call_graph",
-      "DocAgent.src.agent.tool.ast.ParentNodeTransformer",
+      "DocAgent.src.agent.tool.ast.CallGraphBuilder._get_node_code",
+      "DocAgent.src.agent.tool.ast.CallGraphBuilder._get_component_name_from_code",
+      "DocAgent.src.agent.tool.ast.CallGraphBuilder._resolve_instance_type",
+      "DocAgent.src.agent.tool.ast.CallGraphBuilder.get_child_method",
+      "DocAgent.src.agent.tool.ast.CallGraphBuilder._get_class_of_method",
+      "DocAgent.src.agent.tool.ast.CallGraphBuilder.get_child_function",
+      "DocAgent.src.agent.tool.ast.CallGraphBuilder.get_child_class",
       "DocAgent.src.agent.tool.ast.CallGraphBuilder.get_parent",
-      "DocAgent.src.agent.tool.ast._get_component_name_from_code",
       "DocAgent.src.agent.tool.ast.CallGraphBuilder._get_signature_from_code",
-      "DocAgent.src.agent.tool.ast.CallGraphBuilder._get_component_name_from_code"
+      "DocAgent.src.agent.tool.ast._get_component_name_from_code",
+      "DocAgent.src.agent.tool.ast.CallGraphBuilder._parse_file",
+      "DocAgent.src.agent.tool.ast.ParentNodeTransformer",
+      "DocAgent.src.agent.tool.ast.CallGraphBuilder._get_class_node",
+      "DocAgent.src.agent.tool.ast.ASTUtility",
+      "DocAgent.src.agent.tool.ast.CallGraphBuilder.get_child_class_init"
     ],
     "source_code": "class CallGraphBuilder",
     "start_line": 106,
@@ -2798,10 +2798,10 @@
     "relative_path": "DocAgent\\src\\agent\\tool\\ast.py",
     "depends_on": [
       "DocAgent.src.agent.tool.ast.CallGraphBuilder",
-      "DocAgent.src.agent.tool.ast.ASTNodeAnalyzer.get_parent_components",
       "DocAgent.src.agent.tool.ast.ASTNodeAnalyzer.get_child_class_init",
-      "DocAgent.src.agent.tool.ast.ASTNodeAnalyzer.get_child_method",
-      "DocAgent.src.agent.tool.ast.ASTNodeAnalyzer.get_child_function"
+      "DocAgent.src.agent.tool.ast.ASTNodeAnalyzer.get_parent_components",
+      "DocAgent.src.agent.tool.ast.ASTNodeAnalyzer.get_child_function",
+      "DocAgent.src.agent.tool.ast.ASTNodeAnalyzer.get_child_method"
     ],
     "source_code": "class ASTNodeAnalyzer",
     "start_line": 707,
@@ -2877,24 +2877,24 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\agent\\tool\\internal_traverse.py",
     "relative_path": "DocAgent\\src\\agent\\tool\\internal_traverse.py",
     "depends_on": [
-      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._find_method_call_in_node",
-      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._get_function_component",
-      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._find_class_for_prefix",
-      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer.get_parent_components",
-      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._find_class_init_in_node",
-      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._find_function_call_in_node",
-      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._get_call_name",
-      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._get_class_component",
       "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer.get_child_class_init",
-      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._get_component_name",
-      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer.get_component_by_path",
-      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer.get_child_function",
-      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer.get_child_method",
-      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._format_call_node",
-      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._contains_call_to",
+      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._get_class_component",
+      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer.get_parent_components",
       "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._get_node_source",
       "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._get_end_line",
-      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._get_method_component"
+      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._get_call_name",
+      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._find_class_init_in_node",
+      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._get_method_component",
+      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._get_component_name",
+      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._get_function_component",
+      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._find_method_call_in_node",
+      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._contains_call_to",
+      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._format_call_node",
+      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer.get_child_function",
+      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._find_function_call_in_node",
+      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer.get_child_method",
+      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer.get_component_by_path",
+      "DocAgent.src.agent.tool.internal_traverse.ASTNodeAnalyzer._find_class_for_prefix"
     ],
     "source_code": "class ASTNodeAnalyzer",
     "start_line": 7,
@@ -3149,9 +3149,9 @@
     "relative_path": "DocAgent\\src\\agent\\tool\\perplexity_api.py",
     "depends_on": [
       "DocAgent.src.agent.tool.perplexity_api.PerplexityResponse",
-      "DocAgent.src.agent.tool.perplexity_api.PerplexityAPI.batch_query",
       "DocAgent.src.agent.tool.perplexity_api.PerplexityAPI.query",
-      "DocAgent.src.agent.tool.perplexity_api.PerplexityAPI._load_config"
+      "DocAgent.src.agent.tool.perplexity_api.PerplexityAPI._load_config",
+      "DocAgent.src.agent.tool.perplexity_api.PerplexityAPI.batch_query"
     ],
     "source_code": "class PerplexityAPI",
     "start_line": 14,
@@ -3265,10 +3265,10 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\data\\parse\\data_process.py",
     "relative_path": "DocAgent\\src\\data\\parse\\data_process.py",
     "depends_on": [
-      "DocAgent.src.data.parse.data_process.is_english",
       "DocAgent.src.data.parse.data_process.is_high_quality_class_docstring",
+      "DocAgent.src.data.parse.data_process.is_high_quality_file_docstring",
       "DocAgent.src.data.parse.data_process.is_high_quality_function_docstring",
-      "DocAgent.src.data.parse.data_process.is_high_quality_file_docstring"
+      "DocAgent.src.data.parse.data_process.is_english"
     ],
     "source_code": "def is_high_quality_docstring(docstring, doc_type):\n    \"\"\"Check if docstring meets quality criteria and is in English.\"\"\"\n    if not docstring:\n        return False\n        \n    # First check if it's English\n    if not is_english(docstring):\n        return False\n        \n    # Then apply other quality checks\n    if doc_type == \"file\":\n        return is_high_quality_file_docstring(docstring)\n    elif doc_type == \"class\":\n        return is_high_quality_class_docstring(docstring)\n    elif doc_type in (\"function\", \"class_method\"):\n        return is_high_quality_function_docstring(docstring)\n    return False",
     "start_line": 62,
@@ -3294,8 +3294,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\data\\parse\\data_process.py",
     "relative_path": "DocAgent\\src\\data\\parse\\data_process.py",
     "depends_on": [
-      "DocAgent.src.data.parse.data_process.get_repo_name_from_path",
-      "DocAgent.src.data.parse.data_process.is_high_quality_docstring"
+      "DocAgent.src.data.parse.data_process.is_high_quality_docstring",
+      "DocAgent.src.data.parse.data_process.get_repo_name_from_path"
     ],
     "source_code": "def extract_docstrings_from_file(file_path):\n    \"\"\"\n    Parse a single Python file with AST and extract:\n    - file-level docstring\n    - class-level docstrings\n    - function-level docstrings (including class methods)\n    \"\"\"\n    with open(file_path, \"r\", encoding=\"utf-8\", errors='replace') as f:\n        source = f.read()\n    \n    try:\n        tree = ast.parse(source)\n    except SyntaxError:\n        return []\n    \n    docstrings_info = []\n    repo_name = get_repo_name_from_path(file_path)\n\n    # File-level docstring\n    module_docstring = ast.get_docstring(tree)\n    if is_high_quality_docstring(module_docstring, \"file\"):\n        signature = f\"File: {os.path.basename(file_path)}\"\n        docstrings_info.append({\n            \"type\": \"file\",\n            \"location\": file_path,\n            \"repo_name\": repo_name,\n            \"content\": module_docstring.strip(),\n            \"signature\": signature\n        })\n    \n    # Classes and functions\n    for node in ast.walk(tree):\n        if isinstance(node, ast.ClassDef):\n            class_docstring = ast.get_docstring(node)\n            if hasattr(ast, \"unparse\"):\n                bases = [ast.unparse(base) for base in node.bases]\n            else:\n                # fallback for older python versions: just get the name of base classes if simple\n                bases = []\n                for base in node.bases:\n                    if isinstance(base, ast.Name):\n                        bases.append(base.id)\n                    else:\n                        # If complex base, just ignore\n                        bases.append(\"Base\")\n\n            class_signature = f\"class {node.name}\"\n            if bases:\n                class_signature += f\"({', '.join(bases)})\"\n            \n            if is_high_quality_docstring(class_docstring, \"class\"):\n                docstrings_info.append({\n                    \"type\": \"class\",\n                    \"location\": file_path,\n                    \"repo_name\": repo_name,\n                    \"content\": class_docstring.strip(),\n                    \"signature\": class_signature\n                })\n            \n            # Class methods\n            for body_item in node.body:\n                if isinstance(body_item, ast.FunctionDef):\n                    func_docstring = ast.get_docstring(body_item)\n                    args_list = [arg.arg for arg in body_item.args.args]\n                    func_signature = f\"def {body_item.name}({', '.join(args_list)})\"\n                    if is_high_quality_docstring(func_docstring, \"class_method\"):\n                        docstrings_info.append({\n                            \"type\": \"class_method\",\n                            \"location\": file_path,\n                            \"repo_name\": repo_name,\n                            \"content\": func_docstring.strip(),\n                            \"signature\": func_signature\n                        })\n        elif isinstance(node, ast.FunctionDef):\n            # Top-level functions\n            if isinstance(node.parent, ast.Module):  # We'll add a small hack to set parents\n                func_docstring = ast.get_docstring(node)\n                args_list = [arg.arg for arg in node.args.args]\n                func_signature = f\"def {node.name}({', '.join(args_list)})\"\n                if is_high_quality_docstring(func_docstring, \"function\"):\n                    docstrings_info.append({\n                        \"type\": \"function\",\n                        \"location\": file_path,\n                        \"repo_name\": repo_name,\n                        \"content\": func_docstring.strip(),\n                        \"signature\": func_signature\n                    })\n\n    return docstrings_info",
     "start_line": 93,
@@ -3333,10 +3333,10 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\data\\parse\\data_process.py",
     "relative_path": "DocAgent\\src\\data\\parse\\data_process.py",
     "depends_on": [
-      "DocAgent.src.data.parse.data_process.add_parent_references",
+      "DocAgent.src.data.parse.data_process.is_high_quality_docstring",
       "DocAgent.src.data.parse.data_process.get_repo_name_from_path",
       "DocAgent.src.data.parse.data_process.gather_python_files",
-      "DocAgent.src.data.parse.data_process.is_high_quality_docstring"
+      "DocAgent.src.data.parse.data_process.add_parent_references"
     ],
     "source_code": "def process_all_repos(top_dir, output_file):\n    \"\"\"Process all repositories and extract docstrings.\n    \n    Args:\n        top_dir (str): Path to directory containing downloaded repos\n        output_file (str): Path where to save the output JSONL file\n    \"\"\"\n    py_files = gather_python_files(top_dir)\n    # Setup output file\n    # We'll write each docstring object as a single JSON line.\n    # This allows incremental updates without invalidating JSON format.\n    with open(output_file, \"w\", encoding=\"utf-8\") as out_f:\n        # Using tqdm to show progress over Python files\n        for file_path in tqdm(py_files, desc=\"Processing files\"):\n            # Parse the file and extract docstrings\n            with open(file_path, \"r\", encoding=\"utf-8\", errors='replace') as f:\n                source = f.read()\n            try:\n                tree = ast.parse(source)\n                add_parent_references(tree)\n            except SyntaxError:\n                # Skip files that have syntax errors\n                continue\n\n            docstrings = []\n            # File-level docstring\n            repo_name = get_repo_name_from_path(file_path)\n            module_docstring = ast.get_docstring(tree)\n            if is_high_quality_docstring(module_docstring, \"file\"):\n                docstrings.append({\n                    \"type\": \"file\",\n                    \"location\": file_path,\n                    \"repo_name\": repo_name,\n                    \"content\": module_docstring.strip(),\n                    \"signature\": f\"File: {os.path.basename(file_path)}\"\n                })\n            \n            for node in ast.walk(tree):\n                if isinstance(node, ast.ClassDef):\n                    class_docstring = ast.get_docstring(node)\n                    if hasattr(ast, \"unparse\"):\n                        bases = [ast.unparse(base) for base in node.bases]\n                    else:\n                        bases = []\n                        for base in node.bases:\n                            if isinstance(base, ast.Name):\n                                bases.append(base.id)\n                            else:\n                                bases.append(\"Base\")\n\n                    class_signature = f\"class {node.name}\"\n                    if bases:\n                        class_signature += f\"({', '.join(bases)})\"\n                    \n                    if is_high_quality_docstring(class_docstring, \"class\"):\n                        docstrings.append({\n                            \"type\": \"class\",\n                            \"location\": file_path,\n                            \"repo_name\": repo_name,\n                            \"content\": class_docstring.strip(),\n                            \"signature\": class_signature\n                        })\n                    \n                    # Class methods\n                    for body_item in node.body:\n                        if isinstance(body_item, ast.FunctionDef):\n                            func_docstring = ast.get_docstring(body_item)\n                            args_list = [arg.arg for arg in body_item.args.args]\n                            func_signature = f\"def {body_item.name}({', '.join(args_list)})\"\n                            if is_high_quality_docstring(func_docstring, \"class_method\"):\n                                docstrings.append({\n                                    \"type\": \"class_method\",\n                                    \"location\": file_path,\n                                    \"repo_name\": repo_name,\n                                    \"content\": func_docstring.strip(),\n                                    \"signature\": func_signature\n                                })\n                elif isinstance(node, ast.FunctionDef):\n                    # Check if top-level (parent is module)\n                    if isinstance(node.parent, ast.Module):\n                        func_docstring = ast.get_docstring(node)\n                        args_list = [arg.arg for arg in node.args.args]\n                        func_signature = f\"def {node.name}({', '.join(args_list)})\"\n                        if is_high_quality_docstring(func_docstring, \"function\"):\n                            docstrings.append({\n                                \"type\": \"function\",\n                                \"location\": file_path,\n                                \"repo_name\": repo_name,\n                                \"content\": func_docstring.strip(),\n                                \"signature\": func_signature\n                            })\n            \n            # Write each docstring as a separate JSON line immediately\n            for d in docstrings:\n                out_f.write(json.dumps(d, ensure_ascii=False) + \"\\n\")\n                out_f.flush()",
     "start_line": 197,
@@ -3364,10 +3364,10 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\data\\parse\\downloader.py",
     "relative_path": "DocAgent\\src\\data\\parse\\downloader.py",
     "depends_on": [
-      "DocAgent.src.data.parse.downloader.GitHubRepoDownloader._load_config",
       "DocAgent.src.data.parse.downloader.GitHubRepoDownloader.build_query",
-      "DocAgent.src.data.parse.downloader.GitHubRepoDownloader.setup_logging",
+      "DocAgent.src.data.parse.downloader.GitHubRepoDownloader._load_config",
       "DocAgent.src.data.parse.downloader.GitHubRepoDownloader.clone_repository",
+      "DocAgent.src.data.parse.downloader.GitHubRepoDownloader.setup_logging",
       "DocAgent.src.data.parse.downloader.GitHubRepoDownloader.run"
     ],
     "source_code": "class GitHubRepoDownloader",
@@ -3454,9 +3454,9 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\data\\parse\\repo_tree.py",
     "relative_path": "DocAgent\\src\\data\\parse\\repo_tree.py",
     "depends_on": [
+      "DocAgent.src.data.parse.repo_tree.ProjectStructureGenerator.format_structure",
       "DocAgent.src.data.parse.repo_tree.ProjectStructureGenerator.should_ignore",
-      "DocAgent.src.data.parse.repo_tree.ProjectStructureGenerator.generate_structure",
-      "DocAgent.src.data.parse.repo_tree.ProjectStructureGenerator.format_structure"
+      "DocAgent.src.data.parse.repo_tree.ProjectStructureGenerator.generate_structure"
     ],
     "source_code": "class ProjectStructureGenerator",
     "start_line": 9,
@@ -3580,9 +3580,9 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\dependency_analyzer\\ast_parser.py",
     "relative_path": "DocAgent\\src\\dependency_analyzer\\ast_parser.py",
     "depends_on": [
+      "DocAgent.src.dependency_analyzer.ast_parser.CodeComponent.to_dict",
       "DocAgent.src.dependency_analyzer.ast_parser.CodeComponent.from_dict",
-      "DocAgent.src.dependency_analyzer.ast_parser.CodeComponent",
-      "DocAgent.src.dependency_analyzer.ast_parser.CodeComponent.to_dict"
+      "DocAgent.src.dependency_analyzer.ast_parser.CodeComponent"
     ],
     "source_code": "class CodeComponent",
     "start_line": 31,
@@ -3622,8 +3622,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\dependency_analyzer\\ast_parser.py",
     "relative_path": "DocAgent\\src\\dependency_analyzer\\ast_parser.py",
     "depends_on": [
-      "DocAgent.src.dependency_analyzer.ast_parser.ImportCollector.visit_ImportFrom",
-      "DocAgent.src.dependency_analyzer.ast_parser.ImportCollector.visit_Import"
+      "DocAgent.src.dependency_analyzer.ast_parser.ImportCollector.visit_Import",
+      "DocAgent.src.dependency_analyzer.ast_parser.ImportCollector.visit_ImportFrom"
     ],
     "source_code": "class ImportCollector",
     "start_line": 100,
@@ -3724,16 +3724,16 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\dependency_analyzer\\ast_parser.py",
     "relative_path": "DocAgent\\src\\dependency_analyzer\\ast_parser.py",
     "depends_on": [
-      "DocAgent.src.dependency_analyzer.ast_parser.DependencyCollector.visit_Call",
-      "DocAgent.src.dependency_analyzer.ast_parser.DependencyCollector.visit_Name",
-      "DocAgent.src.dependency_analyzer.ast_parser.STANDARD_MODULES",
-      "DocAgent.src.dependency_analyzer.ast_parser.DependencyCollector.visit_Attribute",
-      "DocAgent.src.dependency_analyzer.ast_parser.EXCLUDED_NAMES",
-      "DocAgent.src.dependency_analyzer.ast_parser.DependencyCollector._process_attribute",
       "DocAgent.src.dependency_analyzer.ast_parser.DependencyCollector._add_dependency",
+      "DocAgent.src.dependency_analyzer.ast_parser.DependencyCollector.visit_Call",
+      "DocAgent.src.dependency_analyzer.ast_parser.EXCLUDED_NAMES",
+      "DocAgent.src.dependency_analyzer.ast_parser.STANDARD_MODULES",
       "DocAgent.src.dependency_analyzer.ast_parser.DependencyCollector.visit_Assign",
+      "DocAgent.src.dependency_analyzer.ast_parser.DependencyCollector.visit_Name",
+      "DocAgent.src.dependency_analyzer.ast_parser.DependencyCollector.visit_ClassDef",
       "DocAgent.src.dependency_analyzer.ast_parser.BUILTIN_TYPES",
-      "DocAgent.src.dependency_analyzer.ast_parser.DependencyCollector.visit_ClassDef"
+      "DocAgent.src.dependency_analyzer.ast_parser.DependencyCollector.visit_Attribute",
+      "DocAgent.src.dependency_analyzer.ast_parser.DependencyCollector._process_attribute"
     ],
     "source_code": "class DependencyCollector",
     "start_line": 169,
@@ -3834,9 +3834,9 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\dependency_analyzer\\ast_parser.py",
     "relative_path": "DocAgent\\src\\dependency_analyzer\\ast_parser.py",
     "depends_on": [
-      "DocAgent.src.dependency_analyzer.ast_parser.STANDARD_MODULES",
+      "DocAgent.src.dependency_analyzer.ast_parser.EXCLUDED_NAMES",
       "DocAgent.src.dependency_analyzer.ast_parser.BUILTIN_TYPES",
-      "DocAgent.src.dependency_analyzer.ast_parser.EXCLUDED_NAMES"
+      "DocAgent.src.dependency_analyzer.ast_parser.STANDARD_MODULES"
     ],
     "source_code": "def _add_dependency(self, name):\n        \"\"\"Add a potential dependency based on a name reference.\"\"\"\n        # Skip built-in types\n        if name in BUILTIN_TYPES:\n            return\n            \n        # Skip excluded names\n        if name in EXCLUDED_NAMES:\n            return\n            \n        # Skip local variables\n        if name in self.local_variables:\n            return\n            \n        # Check if name is directly imported from a module\n        for module, imported_names in self.from_imports.items():\n            # Skip standard library modules\n            if module in STANDARD_MODULES:\n                continue\n                \n            if name in imported_names and module in self.repo_modules:\n                self.dependencies.add(f\"{module}.{name}\")\n                return\n                \n        # Check if name refers to a component in the current module\n        local_component_id = f\"{self.current_module}.{name}\"\n        self.dependencies.add(local_component_id)",
     "start_line": 276,
@@ -3862,20 +3862,20 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\dependency_analyzer\\ast_parser.py",
     "relative_path": "DocAgent\\src\\dependency_analyzer\\ast_parser.py",
     "depends_on": [
-      "DocAgent.src.dependency_analyzer.ast_parser.DependencyCollector",
       "DocAgent.src.dependency_analyzer.ast_parser.DependencyParser._resolve_dependencies",
-      "DocAgent.src.dependency_analyzer.ast_parser.DependencyParser.save_dependency_graph",
+      "DocAgent.src.dependency_analyzer.ast_parser.DependencyParser._add_class_method_dependencies",
+      "DocAgent.src.dependency_analyzer.ast_parser.DependencyParser._get_docstring",
+      "DocAgent.src.dependency_analyzer.ast_parser.DependencyParser._parse_file",
       "DocAgent.src.dependency_analyzer.ast_parser.DependencyParser._file_to_module_path",
+      "DocAgent.src.dependency_analyzer.ast_parser.DependencyParser._collect_components",
       "DocAgent.src.dependency_analyzer.ast_parser.DependencyParser.parse_repository",
       "DocAgent.src.dependency_analyzer.ast_parser.DependencyParser.load_dependency_graph",
-      "DocAgent.src.dependency_analyzer.ast_parser.logger",
+      "DocAgent.src.dependency_analyzer.ast_parser.DependencyParser.save_dependency_graph",
       "DocAgent.src.dependency_analyzer.ast_parser.add_parent_to_nodes",
-      "DocAgent.src.dependency_analyzer.ast_parser.DependencyParser._parse_file",
-      "DocAgent.src.dependency_analyzer.ast_parser.DependencyParser._collect_components",
-      "DocAgent.src.dependency_analyzer.ast_parser.DependencyParser._add_class_method_dependencies",
-      "DocAgent.src.dependency_analyzer.ast_parser.DependencyParser._get_source_segment",
-      "DocAgent.src.dependency_analyzer.ast_parser.DependencyParser._get_docstring",
       "DocAgent.src.dependency_analyzer.ast_parser.ImportCollector",
+      "DocAgent.src.dependency_analyzer.ast_parser.logger",
+      "DocAgent.src.dependency_analyzer.ast_parser.DependencyCollector",
+      "DocAgent.src.dependency_analyzer.ast_parser.DependencyParser._get_source_segment",
       "DocAgent.src.dependency_analyzer.ast_parser.CodeComponent"
     ],
     "source_code": "class DependencyParser",
@@ -3960,10 +3960,10 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\dependency_analyzer\\ast_parser.py",
     "relative_path": "DocAgent\\src\\dependency_analyzer\\ast_parser.py",
     "depends_on": [
-      "DocAgent.src.dependency_analyzer.ast_parser.DependencyCollector",
       "DocAgent.src.dependency_analyzer.ast_parser.add_parent_to_nodes",
       "DocAgent.src.dependency_analyzer.ast_parser.ImportCollector",
-      "DocAgent.src.dependency_analyzer.ast_parser.logger"
+      "DocAgent.src.dependency_analyzer.ast_parser.logger",
+      "DocAgent.src.dependency_analyzer.ast_parser.DependencyCollector"
     ],
     "source_code": "def _resolve_dependencies(self):\n        \"\"\"\n        Second pass to resolve dependencies between components.\n        \"\"\"\n        for component_id, component in self.components.items():\n            file_path = component.file_path\n            \n            try:\n                with open(file_path, \"r\", encoding=\"utf-8\") as f:\n                    source = f.read()\n                \n                # Parse file to get imports\n                tree = ast.parse(source)\n                \n                # Add parent field to AST nodes for easier traversal\n                add_parent_to_nodes(tree)\n                \n                # Collect imports\n                import_collector = ImportCollector()\n                import_collector.visit(tree)\n                \n                # Find the component node in the tree\n                component_node = None\n                module_path = self._file_to_module_path(component.relative_path)\n                \n                if component.component_type == \"function\":\n                    # Find top-level function\n                    for node in ast.iter_child_nodes(tree):\n                        if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \n                                and node.name == component.id.split(\".\")[-1]):\n                            component_node = node\n                            break\n                \n                elif component.component_type == \"class\":\n                    # Find class\n                    for node in ast.iter_child_nodes(tree):\n                        if isinstance(node, ast.ClassDef) and node.name == component.id.split(\".\")[-1]:\n                            component_node = node\n                            break\n                \n                elif component.component_type == \"method\":\n                    # Find method inside class\n                    class_name, method_name = component.id.split(\".\")[-2:]\n                    class_node = None\n                    \n                    for node in ast.iter_child_nodes(tree):\n                        if isinstance(node, ast.ClassDef) and node.name == class_name:\n                            class_node = node\n                            for item in node.body:\n                                if (isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) \n                                        and item.name == method_name):\n                                    component_node = item\n                                    break\n                            break\n                \n                if component_node:\n                    # Collect dependencies for this specific component\n                    dependency_collector = DependencyCollector(\n                        import_collector.imports,\n                        import_collector.from_imports,\n                        module_path,\n                        self.modules\n                    )\n                    \n                    # For functions and methods, collect variables defined in the function\n                    if isinstance(component_node, (ast.FunctionDef, ast.AsyncFunctionDef)):\n                        # Add function parameters to local variables\n                        for arg in component_node.args.args:\n                            dependency_collector.local_variables.add(arg.arg)\n                            \n                    dependency_collector.visit(component_node)\n                    \n                    # Add dependencies to the component\n                    component.depends_on.update(dependency_collector.dependencies)\n                    \n                    # Filter out non-existent dependencies\n                    component.depends_on = {\n                        dep for dep in component.depends_on \n                        if dep in self.components or dep.split(\".\", 1)[0] in self.modules\n                    }\n                \n            except (SyntaxError, UnicodeDecodeError) as e:\n                logger.warning(f\"Error analyzing dependencies in {file_path}: {e}\")",
     "start_line": 482,
@@ -4190,10 +4190,10 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\completeness.py",
     "relative_path": "DocAgent\\src\\evaluator\\completeness.py",
     "depends_on": [
+      "DocAgent.src.evaluator.completeness.CompletenessEvaluator.evaluate",
       "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator",
-      "DocAgent.src.evaluator.completeness.ClassCompletenessEvaluator",
       "DocAgent.src.evaluator.base.BaseEvaluator",
-      "DocAgent.src.evaluator.completeness.CompletenessEvaluator.evaluate"
+      "DocAgent.src.evaluator.completeness.ClassCompletenessEvaluator"
     ],
     "source_code": "class CompletenessEvaluator",
     "start_line": 9,
@@ -4234,18 +4234,18 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\completeness.py",
     "relative_path": "DocAgent\\src\\evaluator\\completeness.py",
     "depends_on": [
-      "DocAgent.src.evaluator.completeness.CompletenessEvaluator",
-      "DocAgent.src.evaluator.completeness.ClassCompletenessEvaluator.evaluate_parameters",
       "DocAgent.src.evaluator.completeness.ClassCompletenessEvaluator.evaluate_examples",
-      "DocAgent.src.evaluator.completeness.ClassCompletenessEvaluator.evaluate",
-      "DocAgent.src.evaluator.completeness.ClassCompletenessEvaluator.evaluate_description",
-      "DocAgent.src.evaluator.completeness.ClassCompletenessEvaluator._get_required_sections",
       "DocAgent.src.evaluator.completeness.ClassCompletenessEvaluator._has_init_parameters",
-      "DocAgent.src.evaluator.completeness.ClassCompletenessEvaluator.evaluate_using_string",
-      "DocAgent.src.evaluator.completeness.ClassCompletenessEvaluator.evaluate_attributes",
+      "DocAgent.src.evaluator.completeness.CompletenessEvaluator",
+      "DocAgent.src.evaluator.completeness.ClassCompletenessEvaluator.evaluate",
+      "DocAgent.src.evaluator.completeness.ClassCompletenessEvaluator._get_required_sections",
+      "DocAgent.src.evaluator.completeness.ClassCompletenessEvaluator.evaluate_description",
       "DocAgent.src.evaluator.completeness.ClassCompletenessEvaluator",
+      "DocAgent.src.evaluator.completeness.ClassCompletenessEvaluator.evaluate_parameters",
       "DocAgent.src.evaluator.completeness.ClassCompletenessEvaluator._has_attributes",
-      "DocAgent.src.evaluator.completeness.ClassCompletenessEvaluator.evaluate_summary"
+      "DocAgent.src.evaluator.completeness.ClassCompletenessEvaluator.evaluate_summary",
+      "DocAgent.src.evaluator.completeness.ClassCompletenessEvaluator.evaluate_attributes",
+      "DocAgent.src.evaluator.completeness.ClassCompletenessEvaluator.evaluate_using_string"
     ],
     "source_code": "class ClassCompletenessEvaluator",
     "start_line": 57,
@@ -4399,19 +4399,19 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\completeness.py",
     "relative_path": "DocAgent\\src\\evaluator\\completeness.py",
     "depends_on": [
-      "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator.evaluate_summary",
       "DocAgent.src.evaluator.completeness.CompletenessEvaluator",
-      "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator._has_return_statement",
-      "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator.evaluate_args",
+      "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator.evaluate_using_string",
+      "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator.evaluate_raises",
+      "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator._has_raise_statement",
+      "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator",
       "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator.evaluate_returns",
       "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator.evaluate_description",
-      "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator",
-      "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator.evaluate_raises",
+      "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator.evaluate_summary",
+      "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator.evaluate_args",
       "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator.evaluate_examples",
-      "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator._get_required_sections",
-      "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator.evaluate_using_string",
       "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator.evaluate",
-      "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator._has_raise_statement"
+      "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator._has_return_statement",
+      "DocAgent.src.evaluator.completeness.FunctionCompletenessEvaluator._get_required_sections"
     ],
     "source_code": "class FunctionCompletenessEvaluator",
     "start_line": 386,
@@ -4659,15 +4659,15 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\helpfulness_attributes.py",
     "relative_path": "DocAgent\\src\\evaluator\\helpfulness_attributes.py",
     "depends_on": [
+      "DocAgent.src.evaluator.helpfulness_attributes.DocstringAttributeEvaluator.get_criteria_description",
+      "DocAgent.src.evaluator.helpfulness_attributes.DocstringAttributeEvaluator.get_evaluation_prompt",
+      "DocAgent.src.evaluator.helpfulness_attributes.ScoreLevel",
+      "DocAgent.src.evaluator.helpfulness_attributes.DocstringAttributeEvaluator._initialize_examples",
       "DocAgent.src.evaluator.helpfulness_attributes.DocstringAttributeEvaluator._initialize_criteria",
       "DocAgent.src.evaluator.helpfulness_attributes.DocstringAttributeEvaluator.parse_llm_response",
-      "DocAgent.src.evaluator.helpfulness_attributes.DocstringAttributeEvaluator.get_criteria_description",
-      "DocAgent.src.evaluator.helpfulness_attributes.DocstringAttributeEvaluator.get_examples",
-      "DocAgent.src.evaluator.helpfulness_attributes.EvaluationExample",
-      "DocAgent.src.evaluator.helpfulness_attributes.DocstringAttributeEvaluator._initialize_examples",
-      "DocAgent.src.evaluator.helpfulness_attributes.ScoreLevel",
       "DocAgent.src.evaluator.helpfulness_attributes.DocstringAttributeEvaluator.get_score_criteria",
-      "DocAgent.src.evaluator.helpfulness_attributes.DocstringAttributeEvaluator.get_evaluation_prompt"
+      "DocAgent.src.evaluator.helpfulness_attributes.EvaluationExample",
+      "DocAgent.src.evaluator.helpfulness_attributes.DocstringAttributeEvaluator.get_examples"
     ],
     "source_code": "class DocstringAttributeEvaluator",
     "start_line": 24,
@@ -4814,13 +4814,13 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\helpfulness_description.py",
     "relative_path": "DocAgent\\src\\evaluator\\helpfulness_description.py",
     "depends_on": [
+      "DocAgent.src.evaluator.helpfulness_description.DocstringDescriptionEvaluator.get_evaluation_prompt",
       "DocAgent.src.evaluator.helpfulness_description.DescriptionAspect",
-      "DocAgent.src.evaluator.helpfulness_description.DocstringDescriptionEvaluator.parse_llm_response",
       "DocAgent.src.evaluator.helpfulness_description.AspectCriteria",
       "DocAgent.src.evaluator.helpfulness_description.DocstringDescriptionEvaluator._extract_description",
-      "DocAgent.src.evaluator.helpfulness_description.DocstringDescriptionEvaluator._initialize_criteria",
       "DocAgent.src.evaluator.evaluation_common.ScoreLevel",
-      "DocAgent.src.evaluator.helpfulness_description.DocstringDescriptionEvaluator.get_evaluation_prompt"
+      "DocAgent.src.evaluator.helpfulness_description.DocstringDescriptionEvaluator._initialize_criteria",
+      "DocAgent.src.evaluator.helpfulness_description.DocstringDescriptionEvaluator.parse_llm_response"
     ],
     "source_code": "class DocstringDescriptionEvaluator",
     "start_line": 24,
@@ -4846,9 +4846,9 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\helpfulness_description.py",
     "relative_path": "DocAgent\\src\\evaluator\\helpfulness_description.py",
     "depends_on": [
-      "DocAgent.src.evaluator.helpfulness_description.DescriptionAspect",
+      "DocAgent.src.evaluator.helpfulness_description.AspectCriteria",
       "DocAgent.src.evaluator.evaluation_common.ScoreLevel",
-      "DocAgent.src.evaluator.helpfulness_description.AspectCriteria"
+      "DocAgent.src.evaluator.helpfulness_description.DescriptionAspect"
     ],
     "source_code": "def _initialize_criteria(self) -> Dict[DescriptionAspect, AspectCriteria]:\n        \"\"\"\n        Set up the evaluation criteria for each aspect of docstring descriptions.\n        \n        Returns:\n            Dictionary mapping aspects to their evaluation criteria.\n        \"\"\"\n        return {\n            DescriptionAspect.MOTIVATION: AspectCriteria(\n                description=\"How well does the description explain the reason or motivation behind the code?\",\n                score_criteria={\n                    ScoreLevel.POOR: \"No explanation of why the code exists or its purpose\",\n                    ScoreLevel.FAIR: \"Basic purpose stated but without context or reasoning\",\n                    ScoreLevel.GOOD: \"Clear explanation of purpose with some context\",\n                    ScoreLevel.VERY_GOOD: \"Thorough explanation of purpose with business/technical context\",\n                    ScoreLevel.EXCELLENT: \"Comprehensive explanation of purpose, context, and value proposition\"\n                },\n                example_good=(\n                    \"This cache manager addresses the performance bottleneck in our API \"\n                    \"responses by reducing database load during peak hours, while ensuring \"\n                    \"data freshness for critical operations.\"\n                ),\n                example_poor=\"This is a cache manager for storing data.\"\n            ),\n            \n            DescriptionAspect.USAGE_SCENARIOS: AspectCriteria(\n                description=\"How effectively does it describe when and how to use the code?\",\n                score_criteria={\n                    ScoreLevel.POOR: \"No information about usage scenarios\",\n                    ScoreLevel.FAIR: \"Basic usage information without specific scenarios\",\n                    ScoreLevel.GOOD: \"Some key usage scenarios described\",\n                    ScoreLevel.VERY_GOOD: \"Detailed usage scenarios with common cases\",\n                    ScoreLevel.EXCELLENT: \"Comprehensive coverage of use cases, including edge cases\"\n                },\n                example_good=(\n                    \"Use this validator when processing user-submitted data, especially \"\n                    \"for high-stakes operations like financial transactions. It handles \"\n                    \"various edge cases including partial submissions and legacy formats.\"\n                ),\n                example_poor=\"Validates data according to rules.\"\n            ),\n            \n            DescriptionAspect.INTEGRATION: AspectCriteria(\n                description=\"How well does it explain integration with other system components?\",\n                score_criteria={\n                    ScoreLevel.POOR: \"No mention of system integration\",\n                    ScoreLevel.FAIR: \"Minimal reference to other components\",\n                    ScoreLevel.GOOD: \"Basic explanation of main interactions\",\n                    ScoreLevel.VERY_GOOD: \"Clear description of integration points and dependencies\",\n                    ScoreLevel.EXCELLENT: \"Comprehensive overview of system interactions and data flow\"\n                },\n                example_good=(\n                    \"This service interfaces with the UserAuth system for validation, \"\n                    \"writes logs to CloudWatch, and triggers notifications through SNS. \"\n                    \"It serves as a crucial link between the frontend and payment processor.\"\n                ),\n                example_poor=\"Processes data and sends it to other services.\"\n            ),\n            \n            DescriptionAspect.FUNCTIONALITY: AspectCriteria(\n                description=\"How clearly does it explain the functionality without excessive technical detail?\",\n                score_criteria={\n                    ScoreLevel.POOR: \"No explanation of functionality\",\n                    ScoreLevel.FAIR: \"Overly technical or vague explanation\",\n                    ScoreLevel.GOOD: \"Basic explanation of main functionality\",\n                    ScoreLevel.VERY_GOOD: \"Clear, balanced explanation of functionality\",\n                    ScoreLevel.EXCELLENT: \"Perfect balance of clarity and technical detail\"\n                },\n                example_good=(\n                    \"Processes incoming customer data by first validating format and required fields, \"\n                    \"then enriching with relevant historical data, and finally \"\n                    \"generating risk scores using configurable criteria.\"\n                ),\n                example_poor=\"Processes data using various functions and algorithms.\"\n            )\n        }",
     "start_line": 42,
@@ -4862,8 +4862,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\helpfulness_description.py",
     "relative_path": "DocAgent\\src\\evaluator\\helpfulness_description.py",
     "depends_on": [
-      "DocAgent.src.evaluator.helpfulness_description.DescriptionAspect",
-      "DocAgent.src.evaluator.evaluation_common.ScoreLevel"
+      "DocAgent.src.evaluator.evaluation_common.ScoreLevel",
+      "DocAgent.src.evaluator.helpfulness_description.DescriptionAspect"
     ],
     "source_code": "def get_evaluation_prompt(self, code_implementation: str, docstring: str, eval_type: str = None) -> str:\n        \"\"\"\n        Generates a prompt for LLM evaluation of docstring descriptions.\n        \n        Args:\n            code_implementation: The function or class implementation\n            docstring: The docstring to evaluate\n            eval_type: The type of code component (class, function, method). \n                       If not provided, it will be determined from code_implementation.\n            \n        Returns:\n            Prompt for LLM evaluation\n        \"\"\"\n        # Determine eval_type if not provided\n        if eval_type is None:\n            if code_implementation.strip().startswith(\"class \"):\n                eval_type = \"class\"\n            else:\n                eval_type = \"function\" if \"self\" not in code_implementation.split(\"(\")[0] else \"method\"\n        \n        # Extract description from docstring (everything after the summary)\n        description = self._extract_description(docstring)\n        \n        if not description:\n            return \"The docstring does not have a description section to evaluate.\"\n        \n        prompt = [\"# Docstring Description Evaluation\", \"\"]\n        \n        prompt.extend([\n            \"## Code Component\",\n            f\"```python\",\n            f\"{code_implementation}\",\n            f\"```\",\n            \"\",\n        ])\n        \n        prompt.extend([\n            \"## Docstring Description to Evaluate\",\n            f\"```\",\n            f\"{description}\",\n            f\"```\",\n            \"\",\n        ])\n        \n        # Add evaluation criteria\n        prompt.extend([\n            \"## Evaluation Criteria\",\n            \"Please evaluate the above docstring description across these four aspects:\",\n            \"\"\n        ])\n        \n        for aspect in DescriptionAspect:\n            criteria = self.criteria[aspect]\n            prompt.extend([\n                f\"### {aspect.value.title()}\",\n                f\"{criteria.description}\",\n                \"\",\n                \"Score levels:\",\n                \"\",\n            ])\n            \n            for level in ScoreLevel:\n                prompt.append(f\"{level.value}. {criteria.score_criteria[level]}\")\n            \n            prompt.extend([\n                \"\",\n                \"Examples:\",\n                f\"Good: \\\"{criteria.example_good}\\\"\",\n                f\"Poor: \\\"{criteria.example_poor}\\\"\",\n                \"\",\n            ])\n        \n        # Add output format instructions\n        prompt.extend([\n            \"## Output Format\",\n            \"Please evaluate the description and provide your assessment in this format:\",\n            \"\",\n            \"```\",\n            \"Motivation: [score 1-5]\",\n            \"Usage Scenarios: [score 1-5]\",\n            \"Integration: [score 1-5]\",\n            \"Functionality: [score 1-5]\",\n            \"\",\n            \"Overall: [average of the scores, rounded to nearest integer]\",\n            \"\",\n            \"Suggestions: [2-3 concrete suggestions for improvement focusing on the weakest aspects]\",\n            \"```\",\n        ])\n        \n        return \"\\n\".join(prompt)",
     "start_line": 119,
@@ -4925,16 +4925,16 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\helpfulness_evaluator.py",
     "relative_path": "DocAgent\\src\\evaluator\\helpfulness_evaluator.py",
     "depends_on": [
+      "DocAgent.src.evaluator.helpfulness_summary.DocstringSummaryEvaluator",
       "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator",
-      "DocAgent.src.agent.llm.openai_llm.OpenAILLM",
-      "DocAgent.src.evaluator.helpfulness_evaluator.DocstringHelpfulnessEvaluator.evaluate_component",
-      "DocAgent.src.evaluator.helpfulness_evaluator.EvaluationResult",
-      "DocAgent.src.evaluator.helpfulness_evaluator.DocstringHelpfulnessEvaluator.calculate_statistics",
       "DocAgent.src.evaluator.helpfulness_description.DocstringDescriptionEvaluator",
+      "DocAgent.src.agent.llm.openai_llm.OpenAILLM",
       "DocAgent.src.evaluator.helpfulness_evaluator.DocstringHelpfulnessEvaluator.sample_components",
+      "DocAgent.src.evaluator.helpfulness_evaluator.DocstringHelpfulnessEvaluator.evaluate_component",
       "DocAgent.src.evaluator.helpfulness_evaluator.DocstringHelpfulnessEvaluator.run_evaluation",
       "DocAgent.src.evaluator.helpfulness_evaluator.DocstringHelpfulnessEvaluator.format_statistics_markdown",
-      "DocAgent.src.evaluator.helpfulness_summary.DocstringSummaryEvaluator"
+      "DocAgent.src.evaluator.helpfulness_evaluator.EvaluationResult",
+      "DocAgent.src.evaluator.helpfulness_evaluator.DocstringHelpfulnessEvaluator.calculate_statistics"
     ],
     "source_code": "class DocstringHelpfulnessEvaluator",
     "start_line": 28,
@@ -4948,8 +4948,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\helpfulness_evaluator.py",
     "relative_path": "DocAgent\\src\\evaluator\\helpfulness_evaluator.py",
     "depends_on": [
-      "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator",
       "DocAgent.src.evaluator.helpfulness_summary.DocstringSummaryEvaluator",
+      "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator",
       "DocAgent.src.agent.llm.openai_llm.OpenAILLM",
       "DocAgent.src.evaluator.helpfulness_description.DocstringDescriptionEvaluator"
     ],
@@ -5065,16 +5065,16 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\helpfulness_evaluator_ablation.py",
     "relative_path": "DocAgent\\src\\evaluator\\helpfulness_evaluator_ablation.py",
     "depends_on": [
-      "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator",
-      "DocAgent.src.evaluator.helpfulness_evaluator_ablation.DocstringHelpfulnessEvaluatorAblation.run_evaluation",
+      "DocAgent.src.evaluator.helpfulness_evaluator_ablation.DocstringHelpfulnessEvaluatorAblation.calculate_statistics",
       "DocAgent.src.evaluator.helpfulness_evaluator_ablation.DocstringHelpfulnessEvaluatorAblation.format_statistics_markdown",
-      "DocAgent.src.agent.llm.openai_llm.OpenAILLM",
-      "DocAgent.src.evaluator.helpfulness_description.DocstringDescriptionEvaluator",
-      "DocAgent.src.evaluator.helpfulness_evaluator_ablation.DocstringHelpfulnessEvaluatorAblation.evaluate_component",
       "DocAgent.src.evaluator.helpfulness_evaluator_ablation.DocstringHelpfulnessEvaluatorAblation.sample_components",
       "DocAgent.src.evaluator.helpfulness_summary.DocstringSummaryEvaluator",
       "DocAgent.src.evaluator.helpfulness_evaluator_ablation.EvaluationResult",
-      "DocAgent.src.evaluator.helpfulness_evaluator_ablation.DocstringHelpfulnessEvaluatorAblation.calculate_statistics"
+      "DocAgent.src.evaluator.helpfulness_description.DocstringDescriptionEvaluator",
+      "DocAgent.src.agent.llm.openai_llm.OpenAILLM",
+      "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator",
+      "DocAgent.src.evaluator.helpfulness_evaluator_ablation.DocstringHelpfulnessEvaluatorAblation.run_evaluation",
+      "DocAgent.src.evaluator.helpfulness_evaluator_ablation.DocstringHelpfulnessEvaluatorAblation.evaluate_component"
     ],
     "source_code": "class DocstringHelpfulnessEvaluatorAblation",
     "start_line": 28,
@@ -5088,8 +5088,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\helpfulness_evaluator_ablation.py",
     "relative_path": "DocAgent\\src\\evaluator\\helpfulness_evaluator_ablation.py",
     "depends_on": [
-      "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator",
       "DocAgent.src.evaluator.helpfulness_summary.DocstringSummaryEvaluator",
+      "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator",
       "DocAgent.src.agent.llm.openai_llm.OpenAILLM",
       "DocAgent.src.evaluator.helpfulness_description.DocstringDescriptionEvaluator"
     ],
@@ -5229,8 +5229,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\helpfulness_examples.py",
     "relative_path": "DocAgent\\src\\evaluator\\helpfulness_examples.py",
     "depends_on": [
-      "DocAgent.src.evaluator.helpfulness_examples.BaseExampleEvaluator.get_evaluation_prompt",
-      "DocAgent.src.evaluator.helpfulness_examples.BaseExampleEvaluator.evaluate_prediction"
+      "DocAgent.src.evaluator.helpfulness_examples.BaseExampleEvaluator.evaluate_prediction",
+      "DocAgent.src.evaluator.helpfulness_examples.BaseExampleEvaluator.get_evaluation_prompt"
     ],
     "source_code": "class BaseExampleEvaluator",
     "start_line": 50,
@@ -5268,10 +5268,10 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\helpfulness_examples.py",
     "relative_path": "DocAgent\\src\\evaluator\\helpfulness_examples.py",
     "depends_on": [
-      "DocAgent.src.evaluator.helpfulness_examples.BaseExampleEvaluator",
-      "DocAgent.src.evaluator.helpfulness_examples.FunctionExampleEvaluator._compare_ast_nodes",
-      "DocAgent.src.evaluator.helpfulness_examples.get_callable_name",
       "DocAgent.src.evaluator.helpfulness_examples.FunctionExampleEvaluator.get_evaluation_prompt",
+      "DocAgent.src.evaluator.helpfulness_examples.get_callable_name",
+      "DocAgent.src.evaluator.helpfulness_examples.FunctionExampleEvaluator._compare_ast_nodes",
+      "DocAgent.src.evaluator.helpfulness_examples.BaseExampleEvaluator",
       "DocAgent.src.evaluator.helpfulness_examples.FunctionExampleEvaluator.evaluate_prediction"
     ],
     "source_code": "class FunctionExampleEvaluator",
@@ -5324,12 +5324,12 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\helpfulness_examples.py",
     "relative_path": "DocAgent\\src\\evaluator\\helpfulness_examples.py",
     "depends_on": [
-      "DocAgent.src.evaluator.helpfulness_examples.BaseExampleEvaluator",
-      "DocAgent.src.evaluator.helpfulness_examples.FunctionExampleEvaluator",
-      "DocAgent.src.evaluator.helpfulness_examples.ClassExampleEvaluator.evaluate_prediction",
-      "DocAgent.src.evaluator.helpfulness_examples.ClassExampleEvaluator._get_func_name",
       "DocAgent.src.evaluator.helpfulness_examples.ClassExampleEvaluator._compare_ast_nodes",
-      "DocAgent.src.evaluator.helpfulness_examples.ClassExampleEvaluator.get_evaluation_prompt"
+      "DocAgent.src.evaluator.helpfulness_examples.FunctionExampleEvaluator",
+      "DocAgent.src.evaluator.helpfulness_examples.ClassExampleEvaluator.get_evaluation_prompt",
+      "DocAgent.src.evaluator.helpfulness_examples.ClassExampleEvaluator._get_func_name",
+      "DocAgent.src.evaluator.helpfulness_examples.BaseExampleEvaluator",
+      "DocAgent.src.evaluator.helpfulness_examples.ClassExampleEvaluator.evaluate_prediction"
     ],
     "source_code": "class ClassExampleEvaluator",
     "start_line": 225,
@@ -5391,11 +5391,11 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\helpfulness_examples.py",
     "relative_path": "DocAgent\\src\\evaluator\\helpfulness_examples.py",
     "depends_on": [
-      "DocAgent.src.evaluator.helpfulness_examples.BaseExampleEvaluator",
       "DocAgent.src.evaluator.helpfulness_examples.FunctionExampleEvaluator",
+      "DocAgent.src.evaluator.helpfulness_examples.MethodExampleEvaluator.get_evaluation_prompt",
+      "DocAgent.src.evaluator.helpfulness_examples.BaseExampleEvaluator",
       "DocAgent.src.evaluator.helpfulness_examples.MethodExampleEvaluator.evaluate_prediction",
-      "DocAgent.src.evaluator.helpfulness_examples.MethodExampleEvaluator._compare_ast_nodes",
-      "DocAgent.src.evaluator.helpfulness_examples.MethodExampleEvaluator.get_evaluation_prompt"
+      "DocAgent.src.evaluator.helpfulness_examples.MethodExampleEvaluator._compare_ast_nodes"
     ],
     "source_code": "class MethodExampleEvaluator",
     "start_line": 357,
@@ -5447,15 +5447,15 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\helpfulness_parameters.py",
     "relative_path": "DocAgent\\src\\evaluator\\helpfulness_parameters.py",
     "depends_on": [
-      "DocAgent.src.evaluator.evaluation_common.ParameterEvaluationExample",
-      "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator.get_examples",
-      "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator.get_evaluation_prompt",
-      "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator.parse_llm_response",
-      "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator._initialize_examples",
       "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator.get_score_criteria",
-      "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator.get_criteria_description",
+      "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator.get_evaluation_prompt",
+      "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator.get_examples",
+      "DocAgent.src.evaluator.evaluation_common.ParameterEvaluationExample",
       "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator._initialize_criteria",
-      "DocAgent.src.evaluator.evaluation_common.ScoreLevel"
+      "DocAgent.src.evaluator.evaluation_common.ScoreLevel",
+      "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator.parse_llm_response",
+      "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator.get_criteria_description",
+      "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator._initialize_examples"
     ],
     "source_code": "class DocstringParametersEvaluator",
     "start_line": 9,
@@ -5495,8 +5495,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\helpfulness_parameters.py",
     "relative_path": "DocAgent\\src\\evaluator\\helpfulness_parameters.py",
     "depends_on": [
-      "DocAgent.src.evaluator.evaluation_common.ParameterEvaluationExample",
-      "DocAgent.src.evaluator.evaluation_common.ScoreLevel"
+      "DocAgent.src.evaluator.evaluation_common.ScoreLevel",
+      "DocAgent.src.evaluator.evaluation_common.ParameterEvaluationExample"
     ],
     "source_code": "def _initialize_examples(self) -> List[ParameterEvaluationExample]:\n        \"\"\"\n        Set up concrete examples of parameter descriptions at different quality levels.\n        \n        Each example includes class and __init__ signatures with corresponding parameter\n        descriptions at different quality levels, along with explanations of the ratings.\n        \n        Returns:\n            List of ParameterEvaluationExample objects containing the example cases.\n        \"\"\"\n        return [\n            ParameterEvaluationExample(\n                parameters={\n                    \"Model_entity_id\": \"Numeric identifier for the model entity\",\n                    \"Dist_pg\": \"Distributed process group for coordination\",\n                    \"Checkpoint_config\": \"Defines checkpoint saving intervals and retention\",\n                    \"Runtime_config\": \"Specifies resource or environmental constraints\",\n                    \"Train_module\": \"Orchestrates training steps and interfaces with checkpoints\"\n                },\n                quality_examples={\n                    ScoreLevel.POOR: {\n                        \"Model_entity_id\": \"the model entity ID\",\n                        \"Dist_pg\": \"The Process group\",\n                        \"Checkpoint_config\": \"The checkpoint Configuration\",\n                        \"Runtime_config\": \"The Runtime configuration\",\n                        \"Train_module\": \"The Training module\"\n                    },\n                    ScoreLevel.FAIR: {\n                        \"Model_entity_id\": \"A number that identifies the model\",\n                        \"Dist_pg\": \"Process group for distributed operations\",\n                        \"Checkpoint_config\": \"Settings for checkpoint management\",\n                        \"Runtime_config\": \"Configuration for runtime behavior\",\n                        \"Train_module\": \"Module that manages the training process\"\n                    },\n                    ScoreLevel.GOOD: {\n                        \"Model_entity_id\": \"identifier for the model entity.\",\n                        \"Dist_pg\": \"PyTorch distributed process group that handles communication between processes\",\n                        \"Checkpoint_config\": \"Configuration that determines when checkpoints are saved and how many are kept\",\n                        \"Runtime_config\": \"Specifies runtime parameters like memory limits and timeout settings\",\n                        \"Train_module\": \"Module that implements training logic and interacts with the checkpoint system\"\n                    },\n                    ScoreLevel.VERY_GOOD: {\n                        \"Model_entity_id\": \"Unique numeric identifier for the model entity in the registry. Must be a valid registered model ID\",\n                        \"Dist_pg\": \"PyTorch distributed process group that coordinates operations across GPUs/nodes during training. Should match your distributed setup\",\n                        \"Checkpoint_config\": \"Controls checkpoint frequency, storage locations, and retention policies. Important for balancing disk usage with recovery capabilities\",\n                        \"Runtime_config\": \"Defines resource constraints and operational parameters. Must be configured appropriately for your hardware to avoid performance issues\",\n                        \"Train_module\": \"Orchestrates the training workflow, manages state transitions, and defines what model components get checkpointed\"\n                    },\n                    ScoreLevel.EXCELLENT: {\n                        \"Model_entity_id\": \"Unique integer ID for the model entity (e.g., 1014925). Should always be a 7 digits number. Must exist in the model registry before checkpointing, otherwise will hit CheckpointNotFoundError and fail to load the checkpoint.\",\n                        \"Dist_pg\": \"Distributed process group that handles collective operations for multi-GPU or multi-node setups. This setup must be consistent with the training configuration 'distributed_training_config'.\",\n                        \"Checkpoint_config\": \"Specifies saving intervals, naming formats, and retention. Supports advanced features like asynchronous checkpointing. See examples in 'https://fb.workplace.com/groups/652446422242/preview'.\",\n                        \"Runtime_config\": \"Contains environment constraints (e.g., memory, disk I/O) and concurrency policies. Ensures checkpointing does not stall training under restricted resources, otherwise will hit CheckpointAccessError and fail to load the checkpoint.\",\n                        \"Train_module\": \"Manages end-to-end training flow, triggers checkpoint saving at appropriate intervals, and provides context on what states/parameters to store.\"\n                    },\n                },\n                explanations={\n                    ScoreLevel.POOR: \"Descriptions recite minimal type info, lacking usage or constraints\",\n                    ScoreLevel.FAIR: \"Provides a basic sense of the purpose for each parameter, but lacks detail\",\n                    ScoreLevel.GOOD: \"Covers core constraints and a bit of context, but some usage details are still missing\",\n                    ScoreLevel.VERY_GOOD: \"Explains relevant usage patterns, constraints, and environment needs\",\n                    ScoreLevel.EXCELLENT: \"Comprehensive coverage including resource impact, advanced usage scenarios, and constraints\"\n                }\n            )\n        ]",
     "start_line": 70,
@@ -5576,15 +5576,15 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\helpfulness_summary.py",
     "relative_path": "DocAgent\\src\\evaluator\\helpfulness_summary.py",
     "depends_on": [
+      "DocAgent.src.evaluator.helpfulness_summary.DocstringSummaryEvaluator.parse_llm_response",
+      "DocAgent.src.evaluator.helpfulness_summary.DocstringSummaryEvaluator.get_score_criteria",
       "DocAgent.src.evaluator.helpfulness_summary.DocstringSummaryEvaluator.get_evaluation_prompt",
       "DocAgent.src.evaluator.helpfulness_summary.DocstringSummaryEvaluator._initialize_examples",
-      "DocAgent.src.evaluator.helpfulness_summary.DocstringSummaryEvaluator.get_score_criteria",
-      "DocAgent.src.evaluator.helpfulness_summary.DocstringSummaryEvaluator.get_examples",
-      "DocAgent.src.evaluator.helpfulness_summary.DocstringSummaryEvaluator.get_criteria_description",
-      "DocAgent.src.evaluator.helpfulness_summary.DocstringSummaryEvaluator.parse_llm_response",
       "DocAgent.src.evaluator.helpfulness_summary.DocstringSummaryEvaluator._initialize_criteria",
       "DocAgent.src.evaluator.evaluation_common.ScoreLevel",
-      "DocAgent.src.evaluator.evaluation_common.SummaryEvaluationExample"
+      "DocAgent.src.evaluator.helpfulness_summary.DocstringSummaryEvaluator.get_examples",
+      "DocAgent.src.evaluator.evaluation_common.SummaryEvaluationExample",
+      "DocAgent.src.evaluator.helpfulness_summary.DocstringSummaryEvaluator.get_criteria_description"
     ],
     "source_code": "class DocstringSummaryEvaluator",
     "start_line": 9,
@@ -5791,11 +5791,11 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\truthfulness.py",
     "relative_path": "DocAgent\\src\\evaluator\\truthfulness.py",
     "depends_on": [
+      "DocAgent.src.evaluator.truthfulness.load_dependency_graph",
       "DocAgent.src.evaluator.truthfulness.SYSTEMS",
-      "DocAgent.src.evaluator.truthfulness.generate_summary_report",
       "DocAgent.src.evaluator.truthfulness.check_component_existence",
-      "DocAgent.src.evaluator.truthfulness.extract_components_from_docstring",
-      "DocAgent.src.evaluator.truthfulness.load_dependency_graph"
+      "DocAgent.src.evaluator.truthfulness.generate_summary_report",
+      "DocAgent.src.evaluator.truthfulness.extract_components_from_docstring"
     ],
     "source_code": "def main():\n    # Load completeness evaluation data\n    print(\"Loading completeness evaluation data...\")\n    with open(\"experiments/eval/results/completeness_evaluation_cleaned.json\", 'r') as f:\n        completeness_data = json.load(f)\n    \n    results = {}\n    \n    # Process each component in the completeness data\n    for component_path, component_data in tqdm(completeness_data.items()):\n        if \"docstrings\" not in component_data:\n            continue\n        \n        # Extract repo name\n        parts = component_path.split(\"/\")\n        repo_name = parts[1]\n        # replace all - in reponame to _\n        repo_name = repo_name.replace(\"-\", \"_\")\n        \n        # Load dependency graph for this repo (once)\n        if repo_name not in results:\n            print(f\"Loading dependency graph for {repo_name}...\")\n            dependency_graph = load_dependency_graph(repo_name)\n            results[repo_name] = {}\n        \n        # For each system, analyze the docstring\n        for system in SYSTEMS:\n            if system not in component_data[\"docstrings\"]:\n                continue\n                \n            docstring = component_data[\"docstrings\"][system][\"docstring\"]\n            \n            # Extract mentioned components from docstring\n            components = extract_components_from_docstring(docstring)\n            \n            # Check existence of each component in the dependency graph\n            component_results = []\n            for comp in components:\n                exists, is_cross_file = check_component_existence(\n                    comp, dependency_graph, component_path\n                )\n                \n                component_results.append({\n                    \"name\": comp,\n                    \"exists\": exists,\n                    \"is_cross_file\": is_cross_file\n                })\n            \n            # Store results\n            if component_path not in results[repo_name]:\n                results[repo_name][component_path] = {}\n            \n            results[repo_name][component_path][system] = {\n                \"mentioned_components\": component_results,\n                \"total_mentions\": len(components),\n                \"existing_mentions\": sum(1 for c in component_results if c[\"exists\"]),\n                \"cross_file_mentions\": sum(1 for c in component_results if c[\"is_cross_file\"])\n            }\n    \n    # Save detailed results\n    with open(\"experiments/eval/results/docstring_truthfulness_evaluation.json\", 'w') as f:\n        json.dump(results, f, indent=2)\n    \n    # Generate summary report\n    generate_summary_report(results)",
     "start_line": 163,
@@ -5835,8 +5835,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\helper\\context_finder.py",
     "relative_path": "DocAgent\\src\\evaluator\\helper\\context_finder.py",
     "depends_on": [
-      "DocAgent.src.evaluator.helper.context_finder.UsageLocation.from_dict",
-      "DocAgent.src.evaluator.helper.context_finder.UsageLocation.to_dict"
+      "DocAgent.src.evaluator.helper.context_finder.UsageLocation.to_dict",
+      "DocAgent.src.evaluator.helper.context_finder.UsageLocation.from_dict"
     ],
     "source_code": "class UsageLocation",
     "start_line": 9,
@@ -5886,13 +5886,13 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\helper\\context_finder.py",
     "relative_path": "DocAgent\\src\\evaluator\\helper\\context_finder.py",
     "depends_on": [
-      "DocAgent.src.evaluator.helper.context_finder.UsageLocation",
       "DocAgent.src.evaluator.helper.context_finder.ContextSearcher._save_to_cache",
       "DocAgent.src.evaluator.helper.context_finder.ContextSearcher.find_usages",
-      "DocAgent.src.evaluator.helper.context_finder.ContextSearcher._find_usages_in_file",
-      "DocAgent.src.evaluator.helper.context_finder.ContextSearcher._get_cache_key",
       "DocAgent.src.evaluator.helper.context_finder.ContextSearcher._parse_signature",
-      "DocAgent.src.evaluator.helper.context_finder.ContextSearcher._load_from_cache"
+      "DocAgent.src.evaluator.helper.context_finder.ContextSearcher._get_cache_key",
+      "DocAgent.src.evaluator.helper.context_finder.UsageLocation",
+      "DocAgent.src.evaluator.helper.context_finder.ContextSearcher._load_from_cache",
+      "DocAgent.src.evaluator.helper.context_finder.ContextSearcher._find_usages_in_file"
     ],
     "source_code": "class ContextSearcher",
     "start_line": 31,
@@ -5998,10 +5998,10 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\evaluator\\helper\\context_finder.py",
     "relative_path": "DocAgent\\src\\evaluator\\helper\\context_finder.py",
     "depends_on": [
-      "DocAgent.src.evaluator.helper.context_finder.UsageLocation",
-      "DocAgent.src.evaluator.helper.context_finder.ContextPreparer.prepare_contexts",
       "DocAgent.src.evaluator.helper.context_finder.ContextSearcher",
-      "DocAgent.src.evaluator.helper.context_finder.ContextPreparer._prepare_single_context"
+      "DocAgent.src.evaluator.helper.context_finder.ContextPreparer._prepare_single_context",
+      "DocAgent.src.evaluator.helper.context_finder.UsageLocation",
+      "DocAgent.src.evaluator.helper.context_finder.ContextPreparer.prepare_contexts"
     ],
     "source_code": "class ContextPreparer",
     "start_line": 190,
@@ -6055,13 +6055,13 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\visualizer\\progress.py",
     "relative_path": "DocAgent\\src\\visualizer\\progress.py",
     "depends_on": [
-      "DocAgent.src.visualizer.progress.ProgressVisualizer._print_header",
-      "DocAgent.src.visualizer.progress.ProgressVisualizer._clear_screen",
       "DocAgent.src.visualizer.progress.ProgressVisualizer.show_dependency_stats",
-      "DocAgent.src.visualizer.progress.ProgressVisualizer.update",
+      "DocAgent.src.visualizer.progress.ProgressVisualizer._clear_screen",
       "DocAgent.src.visualizer.progress.ProgressVisualizer.initialize",
+      "DocAgent.src.visualizer.progress.ProgressVisualizer.finalize",
       "DocAgent.src.visualizer.progress.ProgressVisualizer._print_component_status",
-      "DocAgent.src.visualizer.progress.ProgressVisualizer.finalize"
+      "DocAgent.src.visualizer.progress.ProgressVisualizer.update",
+      "DocAgent.src.visualizer.progress.ProgressVisualizer._print_header"
     ],
     "source_code": "class ProgressVisualizer",
     "start_line": 16,
@@ -6171,12 +6171,12 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\visualizer\\status.py",
     "relative_path": "DocAgent\\src\\visualizer\\status.py",
     "depends_on": [
-      "DocAgent.src.visualizer.status.StatusVisualizer.update",
-      "DocAgent.src.visualizer.status.StatusVisualizer.set_current_component",
-      "DocAgent.src.visualizer.status.StatusVisualizer.reset",
       "DocAgent.src.visualizer.status.StatusVisualizer._display_component_info",
+      "DocAgent.src.visualizer.status.StatusVisualizer.reset",
       "DocAgent.src.visualizer.status.StatusVisualizer._clear_screen",
       "DocAgent.src.visualizer.status.StatusVisualizer._get_agent_color",
+      "DocAgent.src.visualizer.status.StatusVisualizer.update",
+      "DocAgent.src.visualizer.status.StatusVisualizer.set_current_component",
       "DocAgent.src.agent.tool.ast._get_component_name_from_code"
     ],
     "source_code": "class StatusVisualizer",
@@ -6277,11 +6277,11 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\visualizer\\web_bridge.py",
     "relative_path": "DocAgent\\src\\visualizer\\web_bridge.py",
     "depends_on": [
-      "DocAgent.src.visualizer.web_bridge.WebSocketManager.disable",
-      "DocAgent.src.visualizer.web_bridge.WebSocketManager.is_enabled",
       "DocAgent.src.visualizer.web_bridge.WebSocketManager.set_socket",
+      "DocAgent.src.visualizer.web_bridge.WebSocketManager.is_enabled",
       "DocAgent.src.visualizer.web_bridge.WebSocketManager.emit",
       "DocAgent.src.visualizer.web_bridge.WebSocketManager.__new__",
+      "DocAgent.src.visualizer.web_bridge.WebSocketManager.disable",
       "DocAgent.src.visualizer.web_bridge.WebSocketManager"
     ],
     "source_code": "class WebSocketManager",
@@ -6358,10 +6358,10 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\visualizer\\web_bridge.py",
     "relative_path": "DocAgent\\src\\visualizer\\web_bridge.py",
     "depends_on": [
-      "DocAgent.src.visualizer.web_bridge.WebStatusAdapter.set_current_component",
-      "DocAgent.src.visualizer.web_bridge.WebSocketManager",
       "DocAgent.src.visualizer.web_bridge.WebStatusAdapter.set_status_message",
-      "DocAgent.src.visualizer.web_bridge.WebStatusAdapter.set_active_agent"
+      "DocAgent.src.visualizer.web_bridge.WebStatusAdapter.set_active_agent",
+      "DocAgent.src.visualizer.web_bridge.WebStatusAdapter.set_current_component",
+      "DocAgent.src.visualizer.web_bridge.WebSocketManager"
     ],
     "source_code": "class WebStatusAdapter",
     "start_line": 54,
@@ -6425,9 +6425,9 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\visualizer\\web_bridge.py",
     "relative_path": "DocAgent\\src\\visualizer\\web_bridge.py",
     "depends_on": [
+      "DocAgent.src.visualizer.web_bridge.WebProgressAdapter.update",
       "DocAgent.src.visualizer.web_bridge.WebProgressAdapter.mark_complete",
-      "DocAgent.src.visualizer.web_bridge.WebSocketManager",
-      "DocAgent.src.visualizer.web_bridge.WebProgressAdapter.update"
+      "DocAgent.src.visualizer.web_bridge.WebSocketManager"
     ],
     "source_code": "class WebProgressAdapter",
     "start_line": 146,
@@ -6479,8 +6479,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\visualizer\\web_bridge.py",
     "relative_path": "DocAgent\\src\\visualizer\\web_bridge.py",
     "depends_on": [
-      "DocAgent.src.visualizer.web_bridge.WebStatusAdapter",
-      "DocAgent.src.visualizer.web_bridge.WebProgressAdapter"
+      "DocAgent.src.visualizer.web_bridge.WebProgressAdapter",
+      "DocAgent.src.visualizer.web_bridge.WebStatusAdapter"
     ],
     "source_code": "def patch_visualizers():\n    \"\"\"\n    Patch the existing visualizer classes to add web interface support.\n    \n    This function should be called before creating any visualizer instances\n    to ensure they have web support.\n    \"\"\"\n    from . import StatusVisualizer, ProgressVisualizer\n    \n    # Check if already patched to avoid double patching\n    if hasattr(StatusVisualizer, '_web_patched'):\n        return\n    \n    # Mark as patched\n    StatusVisualizer._web_patched = True\n    ProgressVisualizer._web_patched = True\n    \n    # Store the original __init__ methods\n    original_status_init = StatusVisualizer.__init__\n    original_progress_init = ProgressVisualizer.__init__\n    \n    # Create patched __init__ methods\n    def patched_status_init(self, *args, **kwargs):\n        original_status_init(self, *args, **kwargs)\n        # Create adapter and store original methods\n        adapter = WebStatusAdapter(self)\n        # Replace methods with adapter methods\n        self.set_active_agent = adapter.set_active_agent\n        self.set_status_message = adapter.set_status_message\n        self.set_current_component = adapter.set_current_component\n    \n    def patched_progress_init(self, *args, **kwargs):\n        original_progress_init(self, *args, **kwargs)\n        # Create adapter and store original methods\n        adapter = WebProgressAdapter(self)\n        # Replace methods with adapter methods\n        self.update = adapter.update\n        if hasattr(self, 'mark_complete'):\n            self.mark_complete = adapter.mark_complete\n    \n    # Apply the patches\n    StatusVisualizer.__init__ = patched_status_init\n    ProgressVisualizer.__init__ = patched_progress_init",
     "start_line": 224,
@@ -6580,9 +6580,9 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\web\\process_handler.py",
     "relative_path": "DocAgent\\src\\web\\process_handler.py",
     "depends_on": [
-      "DocAgent.src.web.process_handler.process",
       "DocAgent.src.web.process_handler.should_stop",
-      "DocAgent.src.web.process_handler.OutputHandler.run"
+      "DocAgent.src.web.process_handler.OutputHandler.run",
+      "DocAgent.src.web.process_handler.process"
     ],
     "source_code": "class OutputHandler",
     "start_line": 26,
@@ -6622,8 +6622,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\web\\process_handler.py",
     "relative_path": "DocAgent\\src\\web\\process_handler.py",
     "depends_on": [
-      "DocAgent.src.visualizer.web_bridge.WebSocketManager",
-      "DocAgent.src.web.process_handler.OutputHandler"
+      "DocAgent.src.web.process_handler.OutputHandler",
+      "DocAgent.src.visualizer.web_bridge.WebSocketManager"
     ],
     "source_code": "def start_generation_process(socketio, repo_path: str, config_path: str):\n    \"\"\"\n    Start the docstring generation process.\n    \n    Args:\n        socketio: The Flask-SocketIO instance for sending updates to clients\n        repo_path: Path to the repository to generate docstrings for\n        config_path: Path to the configuration file\n    \"\"\"\n    global process, should_stop\n    \n    should_stop = False\n    \n    # Set an initial status to show we're starting\n    visualization_handler.update_agent_status(\"System\", \"Starting docstring generation...\")\n    socketio.emit('status_update', visualization_handler.get_current_status())\n    \n    # Connect the socket to the web bridge\n    try:\n        from src.visualizer.web_bridge import WebSocketManager\n        WebSocketManager.set_socket(socketio)\n    except ImportError:\n        socketio.emit('log_message', {\n            'level': 'warning',\n            'message': 'Web bridge not available. Some features may not work correctly.'\n        })\n    \n    # Get the repository structure and update the visualization state\n    try:\n        structure = visualization_handler.get_repo_structure(repo_path)\n        socketio.emit('status_update', visualization_handler.get_current_status())\n        socketio.emit('log_message', {\n            'level': 'info',\n            'message': f'Repository structure loaded with {len(structure[\"children\"])} top-level items'\n        })\n    except Exception as e:\n        socketio.emit('log_message', {\n            'level': 'error',\n            'message': f'Error loading repository structure: {str(e)}'\n        })\n    \n    # Find the generate_docstrings.py script\n    script_path = Path(__file__).parent.parent.parent / 'generate_docstrings.py'\n    \n    if not script_path.exists():\n        socketio.emit('error', {\n            'message': f'Could not find docstring generation script at {script_path}'\n        })\n        return\n    \n    # Start the process\n    try:\n        # Create a temporary file for redirecting stdout and stderr\n        process = subprocess.Popen(\n            [sys.executable, str(script_path), \n             '--repo-path', repo_path, \n             '--config-path', config_path,\n             '--enable-web'],  # Enable web integration\n            stdout=subprocess.PIPE,\n            stderr=subprocess.STDOUT,\n            bufsize=1,\n            universal_newlines=False\n        )\n        \n        # Start the output handler\n        handler = OutputHandler(process, socketio)\n        handler.start()\n        \n        # Wait for the process to complete\n        return_code = process.wait()\n        \n        if return_code == 0:\n            socketio.emit('complete', {\n                'message': 'Docstring generation completed successfully'\n            })\n        else:\n            socketio.emit('error', {\n                'message': f'Docstring generation failed with return code {return_code}'\n            })\n    \n    except Exception as e:\n        socketio.emit('error', {\n            'message': f'Error starting docstring generation process: {str(e)}'\n        })\n    \n    finally:\n        process = None",
     "start_line": 206,
@@ -6666,8 +6666,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\web\\visualization_handler.py",
     "relative_path": "DocAgent\\src\\web\\visualization_handler.py",
     "depends_on": [
-      "DocAgent.src.web.visualization_handler.VisualizationState",
-      "DocAgent.src.web.visualization_handler.VisualizationState.__new__"
+      "DocAgent.src.web.visualization_handler.VisualizationState.__new__",
+      "DocAgent.src.web.visualization_handler.VisualizationState"
     ],
     "source_code": "class VisualizationState",
     "start_line": 18,
@@ -6910,8 +6910,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\web_eval\\app.py",
     "relative_path": "DocAgent\\src\\web_eval\\app.py",
     "depends_on": [
-      "DocAgent.src.web_eval.app.app",
-      "DocAgent.src.web_eval.app.process_directory"
+      "DocAgent.src.web_eval.app.process_directory",
+      "DocAgent.src.web_eval.app.app"
     ],
     "source_code": "def evaluate():\n    \"\"\"\n    Initiates the evaluation process for the specified repository.\n    \n    Returns:\n        Redirects to the results page\n    \"\"\"\n    data = request.get_json()\n    repo_path = data.get('repo_path')\n    \n    if not os.path.exists(repo_path):\n        return jsonify({\"success\": False, \"error\": f\"Repository path does not exist: {repo_path}\"})\n    \n    try:\n        # Start evaluation\n        global evaluation_results\n        evaluation_results = process_directory(repo_path)\n        return jsonify({\"success\": True, \"redirect\": url_for('results')})\n    except Exception as e:\n        return jsonify({\"success\": False, \"error\": str(e)})",
     "start_line": 109,
@@ -6940,13 +6940,13 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\web_eval\\app.py",
     "relative_path": "DocAgent\\src\\web_eval\\app.py",
     "depends_on": [
-      "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator",
-      "DocAgent.src.web_eval.app.app",
-      "DocAgent.src.evaluator.helpfulness_description.DocstringDescriptionEvaluator",
-      "DocAgent.src.web_eval.app.evaluation_results",
-      "DocAgent.src.web_eval.helpers.parse_llm_score_from_text",
       "DocAgent.src.evaluator.helpfulness_summary.DocstringSummaryEvaluator",
-      "DocAgent.src.web_eval.app.config"
+      "DocAgent.src.evaluator.helpfulness_parameters.DocstringParametersEvaluator",
+      "DocAgent.src.evaluator.helpfulness_description.DocstringDescriptionEvaluator",
+      "DocAgent.src.web_eval.app.app",
+      "DocAgent.src.web_eval.helpers.parse_llm_score_from_text",
+      "DocAgent.src.web_eval.app.config",
+      "DocAgent.src.web_eval.app.evaluation_results"
     ],
     "source_code": "def evaluate_helpfulness():\n    \"\"\"\n    Evaluates the helpfulness of a specific docstring component.\n    \n    Returns:\n        JSON response with the helpfulness score\n    \"\"\"\n    data = request.get_json()\n    component_type = data.get('component_type')  # class or function\n    component_name = data.get('component_name')\n    docstring_part = data.get('docstring_part')  # summary, description, etc.\n    docstring_content = data.get('docstring_content')\n    signature = data.get('signature', '')\n    \n    try:\n        # Select appropriate evaluator based on docstring part\n        evaluator = None\n        if docstring_part == 'summary':\n            evaluator = DocstringSummaryEvaluator()\n        elif docstring_part == 'description':\n            evaluator = DocstringDescriptionEvaluator()\n        # elif docstring_part == 'arguments':\n        #     evaluator = DocstringArgumentsEvaluator()\n        elif docstring_part == 'parameters':\n            evaluator = DocstringParametersEvaluator()\n        elif docstring_part == 'attributes':\n            evaluator = DocstringAttributesEvaluator()\n        elif docstring_part == 'examples':\n            evaluator = DocstringExamplesEvaluator()\n        else:\n            return jsonify({\"success\": False, \"error\": f\"Unsupported docstring part: {docstring_part}\"})\n        \n        # Generate prompt\n        prompt = evaluator.get_evaluation_prompt(signature, docstring_content)\n        \n        # Call LLM API based on configured type\n        if config['llm_type'] == 'openai':\n            import openai\n            openai.api_key = config['api_key']\n            response = openai.chat.completions.create(\n                model=config['model'],\n                messages=[{\"role\": \"user\", \"content\": prompt}],\n                temperature=config['temperature'],\n                max_tokens=config['max_output_tokens']\n            )\n            llm_response = response.choices[0].message.content\n            \n        elif config['llm_type'] == 'claude':\n            from anthropic import Anthropic\n            client = Anthropic(api_key=config['api_key'])\n            response = client.messages.create(\n                model=config['model'],\n                max_tokens=config['max_output_tokens'],\n                temperature=config['temperature'],\n                messages=[{\"role\": \"user\", \"content\": prompt}]\n            )\n            llm_response = response.content[0].text\n            \n        else:\n            return jsonify({\"success\": False, \"error\": f\"Unsupported LLM type: {config['llm_type']}\"})\n        \n        # Parse LLM response to get score\n        score, explanation = parse_llm_score_from_text(llm_response)\n        \n        # Update evaluation results with helpfulness score\n        if component_type == 'class':\n            for cls in evaluation_results['classes']:\n                if cls['name'] == component_name:\n                    if 'helpfulness_scores' not in cls:\n                        cls['helpfulness_scores'] = {}\n                    cls['helpfulness_scores'][docstring_part] = {\n                        'score': score,\n                        'explanation': explanation\n                    }\n                    break\n        else:  # function or method\n            for func in evaluation_results['functions']:\n                if func['name'] == component_name:\n                    if 'helpfulness_scores' not in func:\n                        func['helpfulness_scores'] = {}\n                    func['helpfulness_scores'][docstring_part] = {\n                        'score': score,\n                        'explanation': explanation\n                    }\n                    break\n        \n        return jsonify({\n            \"success\": True, \n            \"score\": score, \n            \"explanation\": explanation\n        })\n        \n    except Exception as e:\n        return jsonify({\"success\": False, \"error\": str(e)})",
     "start_line": 138,
@@ -6960,8 +6960,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\web_eval\\app.py",
     "relative_path": "DocAgent\\src\\web_eval\\app.py",
     "depends_on": [
-      "DocAgent.src.web_eval.app.app",
-      "DocAgent.src.web_eval.app.process_directory"
+      "DocAgent.src.web_eval.app.process_directory",
+      "DocAgent.src.web_eval.app.app"
     ],
     "source_code": "def refresh_evaluation():\n    \"\"\"\n    Refreshes the completeness evaluation results.\n    \n    Returns:\n        Redirects to the updated results page\n    \"\"\"\n    data = request.get_json()\n    repo_path = data.get('repo_path')\n    \n    try:\n        # Re-run evaluation\n        global evaluation_results\n        evaluation_results = process_directory(repo_path)\n        return jsonify({\"success\": True})\n    except Exception as e:\n        return jsonify({\"success\": False, \"error\": str(e)})",
     "start_line": 234,
@@ -7070,8 +7070,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\src\\web_eval\\test_docstring_parser.py",
     "relative_path": "DocAgent\\src\\web_eval\\test_docstring_parser.py",
     "depends_on": [
-      "DocAgent.src.web_eval.test_docstring_parser.test_extract_component",
-      "DocAgent.src.web_eval.test_docstring_parser.test_and_print_result"
+      "DocAgent.src.web_eval.test_docstring_parser.test_and_print_result",
+      "DocAgent.src.web_eval.test_docstring_parser.test_extract_component"
     ],
     "source_code": "def main():\n    \"\"\"Run all tests for the docstring parser.\"\"\"\n    # Test 1: Standard Google-style docstring\n    test_and_print_result(\n        \"Standard Google-style docstring\",\n        \"\"\"This is the summary line.\n\nThis is the extended description that spans\nmultiple lines.\n\nArgs:\n    param1: Description of param1\n    param2: Description of param2\n\nReturns:\n    Description of the return value\n\nRaises:\n    ValueError: If something goes wrong\n    \nExamples:\n    >>> example_function(1, 2)\n    3\n\"\"\"\n    )\n\n    # Test 2: Docstring with Google-style section markers and colons\n    test_and_print_result(\n        \"Docstring with explicit Google-style section markers\",\n        \"\"\"Summary: This is a summary on the same line as the marker.\n\nDescription:\n    This is a multi-line\n    description.\n\nArgs:\n    param1: Description of param1\n    param2: Description of param2\n\nReturns:\n    Description of the return value\n\nExamples:\n    Example 1\n    Example 2\n\"\"\"\n    )\n\n    # Test 3: Docstring with content on the same line as section headers\n    test_and_print_result(\n        \"Docstring with content on the same line as section headers\",\n        \"\"\"Summary: This is a summary on the same line.\n\nDescription: This is a description on the same line.\n\nArgs: These are args on the same line.\n    param1: Description of param1\n    param2: Description of param2\n\nReturns: This is the return value on the same line.\n\nRaises: These are exceptions on the same line.\n    ValueError: If something goes wrong\n    \nExamples: This is an example on the same line.\n    >>> example_function(1, 2)\n    3\n\"\"\"\n    )\n\n    # Test 4: Docstring with alternative labels\n    test_and_print_result(\n        \"Docstring with alternative section labels\",\n        \"\"\"Brief: This is the summary with alternative label.\n\nDetailed Description:\n    This is the description.\n\nArguments:\n    param1: Description of param1\n    param2: Description of param2\n\nReturn Value:\n    Description of the return value\n\nExceptions:\n    ValueError: If something goes wrong\n    \nUsage:\n    >>> example_function(1, 2)\n    3\n\"\"\"\n    )\n\n    # Test 5: Docstring with no explicit section markers\n    test_and_print_result(\n        \"Docstring with no explicit section markers\",\n        \"\"\"This is just a simple docstring with no section markers.\n\nIt has a second paragraph, but no explicit Args, Returns, etc.\n\"\"\"\n    )\n\n    # Test 6: Empty docstring\n    test_and_print_result(\n        \"Empty docstring\",\n        \"\"\n    )\n\n    # Test 7: Single line docstring\n    test_and_print_result(\n        \"Single line docstring\",\n        \"This is a single line docstring.\"\n    )\n\n    # Test 8: Docstring with unusual indentation\n    test_and_print_result(\n        \"Docstring with unusual indentation\",\n        \"\"\"\n        This is an indented summary.\n        \n            This description has extra indentation.\n        \n        Args:\n                param1: Indented param\n                param2: Indented param\n        \n        Returns:\n                Indented return value\n        \"\"\"\n    )\n\n    # Test 9: Incomplete docstring with some sections missing\n    test_and_print_result(\n        \"Incomplete docstring with some sections missing\",\n        \"\"\"Summary: This is the summary.\n\nArgs:\n    param1: First parameter\n    param2: Second parameter\n\"\"\"\n    )\n\n    # Test 10: Docstring with uppercase section labels\n    test_and_print_result(\n        \"Docstring with uppercase section labels\",\n        \"\"\"SUMMARY: This is the summary.\n\nDESCRIPTION: This is the description.\n\nARGS:\n    param1: First parameter\n    param2: Second parameter\n\nRETURNS: The return value.\n\"\"\"\n    )\n\n    # Test 11: Docstring with mixed case section labels\n    test_and_print_result(\n        \"Docstring with mixed case section labels\",\n        \"\"\"Summary: This is the summary.\n\nDescription: This is the description.\n\nArguments:\n    param1: First parameter\n    param2: Second parameter\n\nReTuRnS: The return value.\n\"\"\"\n    )\n\n    # Test 12: Docstring with complex examples section\n    test_and_print_result(\n        \"Docstring with complex examples section\",\n        \"\"\"Summary: This function does something.\n\nExamples:\n    >>> example_function(1, 2)\n    3\n    \n    More complex example:\n    \n    ```python\n    result = example_function(\n        a=1,\n        b=2\n    )\n    assert result == 3\n    ```\n\"\"\"\n    )\n\n    # Test 13: Docstring with parameters that look like section labels\n    test_and_print_result(\n        \"Docstring with parameters that look like section labels\",\n        \"\"\"Validates input parameters.\n\nArgs:\n    summary: A parameter named \"summary\"\n    description: A parameter named \"description\"\n    returns: A parameter named \"returns\"\n    examples: A parameter named \"examples\"\n\"\"\"\n    )\n\n    # Test 14: Docstring with non-standard sections\n    test_and_print_result(\n        \"Docstring with non-standard sections\",\n        \"\"\"Summary: This is the summary.\n\nDescription: This is the description.\n\nNote:\n    This is an important note.\n\nWarning:\n    This is a warning.\n\nArgs:\n    param1: First parameter\n\"\"\"\n    )\n\n    # Test 15: Docstring with section labels with extra spaces\n    test_and_print_result(\n        \"Docstring with section labels with extra spaces\",\n        \"\"\"Summary  :   This is the summary with extra spaces around the colon.\n\nDescription   :  \n    This is the description.\n\nArgs   :  \n    param1: First parameter\n\"\"\"\n    )\n\n    # Test 16: Docstring with section label on a line by itself (no colon)\n    # This is a tricky case!\n    test_and_print_result(\n        \"Docstring with section label on a line by itself (no colon)\",\n        \"\"\"This is the summary.\n\nDescription\n    This is the description.\n\nArguments\n    param1: First parameter\n    param2: Second parameter\n\nReturns\n    The return value.\n\"\"\"\n    )\n\n    # Test 17: Docstring with Summary section without a colon\n    test_and_print_result(\n        \"Docstring with Summary section without a colon\",\n        \"\"\"Summary\nThis is a summary without a colon after the section label.\n\nDescription:\n    This is the description.\n\"\"\"\n    )\n\n    # Test 18: Docstring with multiple colons in the summary line\n    test_and_print_result(\n        \"Docstring with multiple colons in the summary line\",\n        \"\"\"Summary: This is a summary: with another colon in it.\n\nDescription:\n    This is the description with: a colon.\n\"\"\"\n    )\n\n    # Test 19: Docstring with summary containing special characters\n    test_and_print_result(\n        \"Docstring with summary containing special characters\",\n        \"\"\"Summary: This summary has *special* characters like: [], (), {}\n\nArgs:\n    param1: Description with `code` and *formatting*\n\"\"\"\n    )\n\n    # Test 20: Docstring with only a summary section\n    test_and_print_result(\n        \"Docstring with only a summary section\",\n        \"\"\"Summary: This is only a summary section without other sections.\n\"\"\"\n    )\n\n    # Test 21: Docstring with summary containing multiple paragraphs\n    test_and_print_result(\n        \"Docstring with summary containing multiple paragraphs\",\n        \"\"\"Summary: \n    This is a multi-paragraph summary.\n    \n    It has more than one paragraph.\n    \nDescription:\n    This is the description.\n\"\"\"\n    )\n\n    # Test 22: Docstring with extra spacing between sections\n    test_and_print_result(\n        \"Docstring with extra spacing between sections\",\n        \"\"\"Summary: This is the summary.\n\n\n\nDescription: This is the description.\n\n\n\nArgs:\n    param1: First parameter\n\"\"\"\n    )\n\n    # Test 23: Docstring with no content after section label\n    test_and_print_result(\n        \"Docstring with no content after section label\",\n        \"\"\"Summary:\n\nDescription:\n\nArgs:\n    param1: This parameter has a description\n\nReturns:\n\"\"\"\n    )\n\n    # Test 24: Docstring with inconsistent indentation\n    test_and_print_result(\n        \"Docstring with inconsistent indentation\",\n        \"\"\"Summary: This is a summary.\n\n    Description: \n        This description has inconsistent indentation.\n  Args:\n      param1: Indented 6 spaces\n   param2: Indented differently\n\"\"\"\n    )\n\n    # Test 25: Real-world complex docstring example\n    test_and_print_result(\n        \"Real-world complex docstring example\",\n        '''\"\"\"\nProcess and analyze data from multiple sources.\n\nThis utility function combines data from different sources,\nperforms advanced analytics, and returns a processed result.\nIt handles various edge cases and data inconsistencies.\n\nArgs:\n    data_source (str or Path): Path to the main data source\n    secondary_sources (List[str], optional): Additional data sources to include\n    config (Dict[str, Any]): Configuration parameters with the following structure:\n        {\n            \"preprocessing\": {\n                \"normalize\": bool,\n                \"fill_missing\": str\n            },\n            \"analysis\": {\n                \"method\": str,\n                \"parameters\": Dict[str, Any]\n            }\n        }\n    callback (Callable, optional): Function to call with progress updates\n\nReturns:\n    Dict[str, Any]: Processed results with the following structure:\n        {\n            \"summary\": {\n                \"total_records\": int,\n                \"processed_records\": int,\n                \"anomalies\": int\n            },\n            \"detailed_results\": List[Dict[str, Any]]\n        }\n\nRaises:\n    FileNotFoundError: If any data source cannot be found\n    ValueError: If the configuration is invalid\n    ProcessingError: If analysis fails during execution\n\nExamples:\n    Basic usage:\n    \n    >>> result = process_data(\"data.csv\", config={\"preprocessing\": {\"normalize\": True}})\n    >>> print(result[\"summary\"][\"total_records\"])\n    1000\n    \n    Advanced usage with multiple sources:\n    \n    ```python\n    sources = [\"secondary1.csv\", \"secondary2.csv\"]\n    config = {\n        \"preprocessing\": {\"normalize\": True, \"fill_missing\": \"mean\"},\n        \"analysis\": {\"method\": \"advanced\", \"parameters\": {\"iterations\": 100}}\n    }\n    \n    def progress(percent):\n        print(f\"Processed: {percent}%\")\n        \n    result = process_data(\"main.csv\", sources, config, callback=progress)\n    ```\n\"\"\"'''\n    )\n\n    # New: Test the extract_docstring_component function specifically\n    print(\"\\n\\n\")\n    print(\"*\" * 100)\n    print(\"TESTING extract_docstring_component FUNCTION\")\n    print(\"*\" * 100)\n    \n    # Test Case 1: Standard docstring\n    test_extract_component(\n        \"\"\"This is a standard docstring summary.\n\nThis is the description.\n\nArgs:\n    param1: First parameter\n    param2: Second parameter\n\nReturns:\n    The return value\n\"\"\"\n    )\n    \n    # Test Case 2: Google-style docstring with explicit section markers\n    test_extract_component(\n        \"\"\"Summary: This is a summary with explicit section marker.\n\nDescription: This is a description.\n\nArgs:\n    param1: First parameter\n    param2: Second parameter\n\nReturns:\n    The return value\n\"\"\"\n    )\n    \n    # Test Case 3: Docstring with content on the same line as section headers\n    test_extract_component(\n        \"\"\"Summary: This is a summary on the same line.\n\nDescription: This is a description on the same line.\n\nArgs: These are arguments on the same line.\n    param1: First parameter\n    param2: Second parameter\n\nReturns: This is the return value on the same line.\n\"\"\"\n    )\n    \n    # Test Case 4: Real-world docstring that might be causing issues\n    test_extract_component(\n        \"\"\"Parses a Google-style docstring into its components.\n\nThis function takes a docstring and extracts the summary, description,\nparameters, returns, raises, and examples sections.\n\nArgs:\n    docstring: The docstring to parse\n\nReturns:\n    A dictionary containing the parsed components\n\"\"\"\n    )\n    \n    # Test Case 5: Empty docstring\n    test_extract_component(\"\")\n    \n    # Specific cases reported as problematic\n    print(\"\\n\\n\")\n    print(\"*\" * 100)\n    print(\"TESTING SPECIFIC PROBLEM CASES\")\n    print(\"*\" * 100)\n    \n    # Problem Case: Summary followed immediately by content\n    test_extract_component(\n        \"\"\"Summary:This is a summary with no space after the colon.\n\nDescription:\n    This is a description.\n\"\"\"\n    )\n    \n    # Problem Case: Summary with line break before content\n    test_extract_component(\n        \"\"\"Summary:\n    This is a summary after a line break.\n\nDescription:\n    This is a description.\n\"\"\"\n    )",
     "start_line": 72,
@@ -7085,9 +7085,9 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\DocAgent\\tool\\remove_docstrings.py",
     "relative_path": "DocAgent\\tool\\remove_docstrings.py",
     "depends_on": [
+      "DocAgent.tool.remove_docstrings.DocstringRemover.visit_AsyncFunctionDef",
       "DocAgent.tool.remove_docstrings.DocstringRemover.visit_ClassDef",
-      "DocAgent.tool.remove_docstrings.DocstringRemover.visit_FunctionDef",
-      "DocAgent.tool.remove_docstrings.DocstringRemover.visit_AsyncFunctionDef"
+      "DocAgent.tool.remove_docstrings.DocstringRemover.visit_FunctionDef"
     ],
     "source_code": "class DocstringRemover",
     "start_line": 14,
