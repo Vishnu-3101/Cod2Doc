@@ -5,3 +5,5 @@ langchain-chroma
 sentence-transformers
 langchain-text-splitters
 faiss-cpu
+langchain-ollama
+rank_bm25
