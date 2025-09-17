@@ -65,56 +65,61 @@ entry_points = find_entrypoints(dependency_graph_path)
 
 print(entry_points)
 
+"""
+For every entry point, get their source code and make the doc - line by line...
 
-# docs, data = get_doc(dependency_graph_path)
-
-# embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-l6-v2")
-
-# vectorstore = FAISS.from_documents(docs, embeddings)
-# embedding_retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
-
-# # BM25 retriever
-# bm25_retriever = BM25Retriever.from_documents(docs)
-# bm25_retriever.k = 2
-
-# # Hybrid retriever (weighted ensemble)
-# hybrid_retriever = EnsembleRetriever(
-#     retrievers=[embedding_retriever, bm25_retriever],
-#     weights=[0.3, 0.7] 
-# )
-
-# # Example
-# query_code = "def backward():"
-# results,expanded_results = retrieve_with_dependencies(query_code, hybrid_retriever, data)
+"""
 
 
-# # for result in results:d
-# #     # print(result.metadata['score'])
-# #     print(result.page_content)
-# #     print("------------------------------------")
+docs, data = get_doc(dependency_graph_path)
 
-# # print(expanded_results)
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-l6-v2")
 
-# for res in expanded_results:
-#     print(res["id"], "=> depends on", res["depends_on"])
+vectorstore = FAISS.from_documents(docs, embeddings)
+embedding_retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+
+# BM25 retriever
+bm25_retriever = BM25Retriever.from_documents(docs)
+bm25_retriever.k = 2
+
+# Hybrid retriever (weighted ensemble)
+hybrid_retriever = EnsembleRetriever(
+    retrievers=[embedding_retriever, bm25_retriever],
+    weights=[0.3, 0.7] 
+)
+
+# Example
+query_code = "def backward():"
+results,expanded_results = retrieve_with_dependencies(query_code, hybrid_retriever, data)
+
+
+# for result in results:d
+#     # print(result.metadata['score'])
+#     print(result.page_content)
 #     print("------------------------------------")
 
+# print(expanded_results)
 
-# llm = ChatOllama(model="qwen3:0.6b")
+for res in expanded_results:
+    print(res["id"], "=> depends on", res["depends_on"])
+    print("------------------------------------")
 
-# template = """
-# You are a code documentation generator.
-# Generate documentation for the {query_code}. Use {components} for any additional information 
-# required to generate detailed documentation. The documentation should be of two paragraphs.:
 
-# 1. Brief introduction involving functionality and explanation of given code in 2-3 lines.
-# 2. Detailed functionality including the components the code depends on if any in not more than 100 words.
+llm = ChatOllama(model="qwen3:0.6b")
 
-# """
-# prompt = PromptTemplate.from_template(template)
-# chain = LLMChain(llm=llm, prompt=prompt)
+template = """
+You are a code documentation generator.
+Generate documentation for the {query_code}. Use {components} for any additional information 
+required to generate detailed documentation. The documentation should be of two paragraphs.:
 
-# docs_to_docgen = "\n\n".join([res["source_code"] for res in expanded_results])
-# documentation = chain.invoke({"query_code": query_code, "components": docs_to_docgen})
+1. Brief introduction involving functionality and explanation of given code in 2-3 lines.
+2. Detailed functionality including the components the code depends on if any in not more than 100 words.
 
-# print(documentation['text'])
+"""
+prompt = PromptTemplate.from_template(template)
+chain = LLMChain(llm=llm, prompt=prompt)
+
+docs_to_docgen = "\n\n".join([res["source_code"] for res in expanded_results])
+documentation = chain.invoke({"query_code": query_code, "components": docs_to_docgen})
+
+print(documentation['text'])
