@@ -348,6 +348,14 @@ class DependencyParser:
         logger.info(f"Parsing repository at {self.repo_path}")
 
         # First pass: collect modules and code components
+        """
+        os.walk - Goes through all the files in the directory either topdown or bottom up way.
+        file_to_module_path = converts mod1/mod2/file to mod1.mod2.file where mod1 is relative to repo_path.
+        self.modules - This will have all the files that end with .py with relative path to repo_path.
+        
+        Result:
+            self.modules will have all the python files with their relative paths.
+        """
         for root, _, files in os.walk(self.repo_path):
             for file in files:
                 if not file.endswith(".py"):
@@ -359,6 +367,9 @@ class DependencyParser:
                 self.modules.add(module_path)
 
         # Second pass: parse files (now that self.modules is populated)
+        """
+        For every file in the repo perform parsing.
+        """
         for root, _, files in os.walk(self.repo_path):
             for file in files:
                 if not file.endswith(".py"):
@@ -384,7 +395,18 @@ class DependencyParser:
         return path.replace(os.path.sep, ".")
 
     def _parse_file(self, file_path: str, relative_path: str, module_path: str):
-        """Parse a single Python file to collect code components."""
+        """
+        Parse a single Python file to collect code components.
+        
+        ast.parse(code) - This will give all the component types in the code.
+        eg: <ast.ImportFrom object at 0x000001EFBEE4E410>
+            <ast.ClassDef object at 0x000001EFBEE4E3B0>
+
+        add_parent_to_nodes(tree) - Parent->Child link is already established in AST tree by default.
+                                    This function add child->parent backward link
+                
+        """
+
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 source = f.read()
