@@ -1,3 +1,4 @@
+from utils.toposort import dependency_first_dfs
 import sys
 import logging
 import os
@@ -10,7 +11,6 @@ from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.retrievers import BM25Retriever
 from langchain.retrievers import EnsembleRetriever
-
 
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
@@ -53,9 +53,11 @@ def find_entrypoints(graph):
 
 
 dependency_graph_path = "output/dependency_graph.json"
-repo_path = "knowledge_base"
+repo_path = "knowledge_base/AutoDiff"
 
-if not os.path.exists(dependency_graph_path):
+force_build = False
+
+if not os.path.exists(dependency_graph_path) or force_build:
     BuildGraph(repo_path=repo_path, dependency_graph_path=dependency_graph_path)
 
 else:
@@ -96,6 +98,7 @@ print(entry_points)
 expanded_results = retrieve(entry_points[0])
     
 
+# result = dependency_first_dfs(graph)
 
 # embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-l6-v2")
 
@@ -150,10 +153,18 @@ Your task is to generate clear, developer-friendly documentation for a software 
 The documentation is targeted at new developers onboarding. 
 
 # Instructions:
-1. Start with a **concise introduction** (2–4 sentences) of what the entry point does.
-2. Then explain the code execution flow **only for the entry point and its immediate dependencies**.
-3. For each component:
-   - Explain what it does, why it exists, and how it contributes to execution.
+1. Concise introduction - **only if <param>IfFirst</param>==True**: (2 sentences) of what the entry point does only based on below conditions. Mention that this is the entry point of the code. 
+Conditions for entry point:
+- If <param>EntryPointCode</param> is just one line, you won't be having much to explain. So just give what is happening in the line in 5-6 words.
+- If the entry point is a function or class, breifly describe what the code is trying to achieve (a summarized version). Detailed expalnation will be provided in next step.          
+                                                                     
+2. Detailed Explanation:
+- If the code is short (less than 3 lines), you decide whether the content provided in above introduction is sufficient for the explanation or not. Only provide if not sufficient. 
+- Else, explain the code in details line by line. If the current line has any one of <param>ImmediateDependencies</param>, mention that the detailed explanation to that dependency will be explained in detail further.
+- Explain what the code does, why it exists, and how it contributes to execution. Take help of <param>PreviousDocs</param> if it is not empty.
+                                                                            
+3. Add code block:
+   
    - Show its exact source code in Markdown format:
      ```python
      # code here
@@ -161,30 +172,13 @@ The documentation is targeted at new developers onboarding.
    - After each code block, add `[See code above](#)` as a placeholder link.
 
 # Input:
-- Entry Point Code: {query_code}
-- Immediate Dependencies: {components}
+<param>EntryPointCode</param>: {query_code}
+<param>ImmediateDependencies</param>: {dependent_comps}
+<param>IfFirst</param>: {is_first}
+<param>PreviousDocs</param> : {previous_docs}
 
 # Output:
-Generate Markdown documentation with an introduction followed by code explanations. 
-""")
-
-followup_prompt = PromptTemplate.from_template("""
-You are continuing a top-down documentation generation task. 
-Below is the documentation generated so far (only last few sections):
-
-{previous_docs}
-
-# Instructions:
-1. Continue the documentation without repeating the introduction. 
-2. Only explain the new components provided below.
-3. Maintain stylistic consistency with the existing documentation.
-4. Follow the same format: Explanation → Code snippet → [See code above](#).
-
-# New Components:
-{components}
-
-# Output:
-Generate Markdown documentation for the new components only.
+Generate Markdown documentation with following the above mentioned instructions. 
 """)
 
 
@@ -195,66 +189,100 @@ This way it would be more systematic.
 
 llm = ChatOllama(model="qwen3:0.6b")
 
-intro_chain = LLMChain(llm=llm, prompt=intro_prompt)
-followup_chain = LLMChain(llm=llm, prompt=followup_prompt)
+chain = LLMChain(llm=llm, prompt=intro_prompt)
 
-def generate_docs(entry_point_id, graph, memory_window=3):
+seen = []
+ids = [k for k,_ in graph.items()]
+documentation_parts = []
+conversation_history = deque(maxlen=3)
+
+
+def generate_docs(entry_point_id, graph, memory_window=3, is_first=True):
     """Generate documentation step by step, expanding dependencies layer by layer,
     with short-term memory of last few sections for consistency.
     """
+    if entry_point_id in seen or entry_point_id not in ids:
+        return
+    seen.append(entry_point_id)
 
-    seen = set()
-    documentation_parts = []
-    conversation_history = deque(maxlen=memory_window)  # <-- rolling memory
+    prev_docs = "\n\n".join([c for c in conversation_history])
+    #     print(comps_code)
+    dependent_comps = graph[entry_point_id]['depends_on']
 
-    def expand_layer(component_ids, is_first=False):
-        print(component_ids)
-        nonlocal documentation_parts, conversation_history
-        new_components = [graph[cid] for cid in component_ids if cid not in seen]
-        if not new_components:
-            return
+    doc = chain.invoke({
+        "query_code": graph[entry_point_id]["source_code"],
+        "previous_docs": prev_docs,
+        "is_first" : is_first,
+        "dependent_comps": dependent_comps
+    })
 
-        for comp in component_ids:
-            seen.add(comp)
+    print(entry_point_id)
+    print(graph[entry_point_id]['source_code'])
+    print("--------------------------------------------")
 
-        comps_code = "\n\n".join([c["source_code"] for c in new_components])
-        print(comps_code)
+    documentation_parts.append(doc["text"])
+    conversation_history.append(doc["text"])
 
-        if is_first:
-            print("")
-            # doc = intro_chain.invoke({
-            #     "query_code": graph[entry_point_id]["source_code"],
-            #     "components": comps_code
-            # })
-        else:
-            prev_docs = "\n\n".join(conversation_history)
-            # doc = followup_chain.invoke({
-            #     "components": comps_code,
-            #     "previous_docs": prev_docs
-            # })
+    for deps in graph[entry_point_id]['depends_on']:
+        generate_docs(deps,graph,is_first=False)
+    
+    return "\n----------------------\n".join(documentation_parts)
+    
 
-        # print(doc['text'])
-        print("------------------------------")
 
-        # documentation_parts.append(doc["text"])
-        # conversation_history.append(doc["text"])  # keep only last few sections
 
-        # collect dependencies for next layer
-        next_layer = []
-        for comp in new_components:
-            next_layer.extend(comp["depends_on"])
-        return next_layer
+    # seen = set()
+    # documentation_parts = []
+    # conversation_history = deque(maxlen=memory_window)  # <-- rolling memory
 
-    # Step 1: entry point + first layer
-    first_layer = graph[entry_point_id]["depends_on"]
-    next_layer = expand_layer([entry_point_id] + first_layer, is_first=True)
+    # def expand_layer(component_ids, is_first=False):
+    #     print(component_ids)
+    #     nonlocal documentation_parts, conversation_history
+    #     new_components = [graph[cid] for cid in component_ids if cid not in seen]
+    #     if not new_components:
+    #         return
 
-    # Step 2+: iteratively expand
-    while next_layer:
-        next_layer = expand_layer(next_layer, is_first=False)
+    #     for comp in component_ids:
+    #         seen.add(comp)
 
-    # Combine all partial outputs
-    return "\n\n".join(documentation_parts)
+    #     comps_code = "\n\n".join([c["source_code"] for c in new_components])
+    #     print(comps_code)
+
+    #     if is_first:
+    #         print("")
+    #         # doc = intro_chain.invoke({
+    #         #     "query_code": graph[entry_point_id]["source_code"],
+    #         #     "components": comps_code
+    #         # })
+    #     else:
+    #         prev_docs = "\n\n".join(conversation_history)
+    #         # doc = followup_chain.invoke({
+    #         #     "components": comps_code,
+    #         #     "previous_docs": prev_docs
+    #         # })
+
+    #     # print(doc['text'])
+    #     print("------------------------------")
+
+    #     # documentation_parts.append(doc["text"])
+    #     # conversation_history.append(doc["text"])  # keep only last few sections
+
+    #     # collect dependencies for next layer
+    #     next_layer = []
+    #     for comp in new_components:
+    #         next_layer.extend(comp["depends_on"])
+    #     return next_layer
+
+    # # Step 1: entry point + first layer
+    # first_layer = graph[entry_point_id]["depends_on"]
+    # next_layer = expand_layer([entry_point_id] + first_layer, is_first=True)
+
+    # # Step 2+: iteratively expand
+    # while next_layer:
+    #     next_layer = expand_layer(next_layer, is_first=False)
+
+    # # Combine all partial outputs
+    # return "\n\n".join(documentation_parts)
 
 
 # Example usage
