@@ -7,3 +7,4 @@ langchain-text-splitters
 faiss-cpu
 langchain-ollama
 rank_bm25
+langchain-google-genai
