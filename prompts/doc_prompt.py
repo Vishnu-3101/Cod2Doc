@@ -15,7 +15,7 @@ Your task is to generate clear, developer-friendly documentation for a software 
      ```
 - Add code block name in heading3 format before code block.
 
-Provide your final docuementation to the code within <answer></answer> xml tags. Always output your thoughts within <thinking></thinking> xml tags only. .                                           
+Provide your final docuementation to the code within <answer></answer> xml tags. Always output your thoughts within <thinking></thinking> xml tags only. Donot assume anything at any cost.                                           
 
 </guidlines>
                                                                                                                                   
