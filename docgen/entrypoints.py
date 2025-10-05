@@ -20,4 +20,7 @@ def find_entrypoints(graph):
     # Filter components where "main" appears in the ID
     main_components = [comp_id for comp_id in entrypoints if "main" in comp_id.lower()]
 
+    if len(main_components)==0:
+        main_components = entrypoints
+
     return main_components
