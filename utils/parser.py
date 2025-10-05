@@ -443,7 +443,7 @@ class DependencyParser:
                     component_type="class",
                     file_path=file_path,
                     relative_path=relative_path,
-                    source_code=f"class {class_id.split('.')[-1]}",
+                    source_code=self._get_source_segment(source, node),
                     start_line=node.lineno,
                     end_line=getattr(node, "end_lineno", node.lineno),
                     has_docstring=has_docstring,
