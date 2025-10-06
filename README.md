@@ -1,109 +1,191 @@
-# Code to Documentation Generator
+# 🧠 Code to Documentation Generator (LLM-Powered)
 
-This project analyzes Python code, builds a dependency graph between functions and components, retrieves relevant code snippets, and generates human-readable documentation using LLMs.
+Turn any Python repository into beautifully structured, developer-friendly documentation — automatically.
+This tool analyzes your codebase, builds a dependency graph, retrieves related components, and uses LLMs to generate top-down, human-readable documentation.
 
-It combines **graph-based analysis** with **hybrid retrieval (BM25 + embeddings)** to fetch contextually relevant code and uses **Ollama-powered LLMs** to produce structured documentation.
+Now with an **interactive Streamlit UI**, **GitHub repo cloning**, and **step-by-step animated generation**.
 
 ---
 
 ## 🚀 Features
 
-- Build a dependency graph of functions and components in a repo  
-- Perform topological sorting & cycle detection for dependency resolution  
-- Retrieve code context using a hybrid retriever (BM25 + dense embeddings)  
-- Automatically generate documentation for queried code using an LLM  
+✅ **Automatic Repository Analysis**
+
+* Paste a GitHub repo link — the app clones it locally and parses all Python files.
+
+✅ **Dependency Graph Construction**
+
+* Uses AST parsing to build a detailed dependency graph between functions, classes, and files.
+
+✅ **Multiple Entry Points**
+
+* Detects all code entry points (e.g., main scripts) and generates **separate docs** for each.
+
+✅ **Step-by-Step LLM Documentation**
+
+* Feeds code to the LLM in a top-down order with short-term memory, ensuring context awareness without hitting token limits.
+
+✅ **Interactive Streamlit UI**
+
+* Real-time progress animation:
+  *“Cloning repo → Building graph → Finding entry points → Generating docs → Compiling results”*
+
+✅ **Downloadable Docs**
+
+* Each generated document can be previewed in the app and downloaded in Markdown format.
 
 ---
 
-## 📂 Project Structure
+## 🧩 Project Structure
 
 ```text
-.
-├── main.py                     
+
+├── main.py                     # streamlit pipeline
 ├── utils/
-│   ├── build_graph.py          
+│   ├── build_graph.py          # Builds dependency graph via AST parsing
 │   ├── loader.py               # Loads docs, retrieves code with dependencies
-│   ├── parser.py               # Extracts functions/classes from source code
-│   ├── toposort.py             # Graph algorithms (DFS, Tarjan, topological sort)
-├── knowledge_base/             # Source repo/codebase to analyze
+│   ├── parser.py               # Extracts functions/classes from code
+│   ├── toposort.py             # Handles graph traversal and sorting
+├── docgen/                     # Core documentation generation pipeline
+│   ├── entrypoints.py          # Identifies and manages entry points in the dependency graph
+│   ├── generator.py            # Coordinates the doc generation process for each entry point
+│   ├── retriever.py            # Retrieves dependent code snippets and context for doc generation
+├── llm/                        # LLM integration and chain setup
+│   └── chain_setup.py          # Defines and initializes LLM chains, memory, and retrievers
+├── prompts/                    # Organized prompt templates for LLM interactions
+│   └── doc_prompts.py          # Contains detailed and structured prompts for documentation generation
 ├── output/
-│   └── dependency_graph.json   # Auto-generated dependency graph
+│   ├── dependency_graph.json   # Auto-generated dependency graph
+│   └── documentation_*.md      # Generated documentation files
 ```
+
+---
 
 ## ⚙️ Installation
 
-### Clone the repo
+### 1. Clone this repository
+
 ```bash
-git clone https://github.com/your-username/code-doc-gen.git
-cd code-doc-gen
+git clone https://github.com/vishnu-3101/cod2doc.git
+cd cod2doc
 ```
 
-### Create a virtual environment
+### 2. Create a virtual environment
+
 ```bash
 python -m venv venv
-# On Linux/Mac:
+# Linux/Mac
 source venv/bin/activate
-# On Windows (Powershell):
+# Windows (Powershell)
 venv\Scripts\Activate.ps1
 ```
 
-### Install dependencies
+### 3. Install dependencies
+
 ```bash
 pip install -r requirements.txt
 ```
 
 **Core dependencies include:**
-- `langchain`  
-- `langchain-community`  
-- `langchain-huggingface`  
-- `langchain-ollama`  
-- `faiss-cpu`  
-- `rank-bm25`  
-- `transformers`  
+
+* `langchain`
+* `langchain-google-genai`
+* `langchain-core`
+* `langchain-community`
+* `gitpython`
+* `streamlit`
+* `shutil`
+* `pathlib`
 
 ---
 
-## Install and run Ollama
+## 🦙 Setup Gemini API Keys
 
-- Follow Ollama setup instructions: [Ollama.ai](https://ollama.ai)  
-- Pull the required model (example uses `qwen3:0.6b`):
+This project uses **Google Gemini 2.0 Flash** for LLM-powered documentation generation.
+
+### 1. Get Your API Key
+
+* Visit [Google AI Studio](https://makersuite.google.com/app/apikey)
+* Sign in with your Google account
+* Click **“Create API key”** and copy it.
+
+### 2. Add the Key to Your Environment
+
+You can store the key in a `.env` file (recommended) or set it as an environment variable.
+
+Create a file named `.env` in the project root and add:
+
 ```bash
-ollama pull qwen3:0.6b
+GEMINI_API_KEY=your_api_key_here
 ```
 
+---
 
-## ▶️ Running the Project
+## ▶️ Running the Streamlit App
 
-1. Place your target source code inside the `knowledge_base/` folder.  
-2. Run the main script:
-   ```bash
-   python main.py
-3. On first run, it generates output/dependency_graph.json.
+Launch the app:
 
-4. The retrievers fetch code relevant to the query.
-
-5. The LLM outputs generated documentation in structured paragraphs.
-
-
-## 🔍 Example Usage
-
-Inside `main.py`, set the query:
-```python
-query_code = "def backward():"
+```bash
+streamlit run app.py
 ```
 
-#### When executed, the pipeline:
+### 💡 What Happens Behind the Scenes
 
-* Finds the backward() function in the repo
-* Expands its context by retrieving dependencies
-* Sends it to the LLM (qwen3:0.6b)
-* Produces documentation
+1. You paste a GitHub repository link.
+2. The app:
 
-## Example Output
-```text
-backward() is a function responsible for computing gradients in the training loop.
-It depends on forward propagation results and updates model parameters accordingly.
+   * Clones the repository locally.
+   * Builds a dependency graph.
+   * Identifies all entry points.
+   * Generates detailed documentation for each entry point.
+3. You can **preview**, **download**, or **regenerate** documentation interactively.
 
-In detail, backward() leverages loss computations and calls gradient update functions.
-Its dependencies include optimizer utilities and helper functions defined in optimizer.py.
-```
+---
+
+## 🧠 Example Workflow
+
+1. Enter your repository link in the Streamlit interface:
+
+   ```
+   https://github.com/your-username/sample-python-project
+   ```
+2. The app analyzes the repo:
+
+   * 🔍 “Understanding repo files…”
+   * 🧩 “Building dependency graph…”
+   * 🚀 “Generating docs…”
+3. View the generated documentation for each entry point in Markdown format in output folder:
+
+   ```text
+   output
+   ├── documentation_{repo_id}
+   ```
+
+---
+
+
+## 🧭 Roadmap
+
+* [ ] Add multi-model support (OpenAI, Anthropic, Ollama)
+* [ ] Add theme customization for output docs
+* [ ] Enable multi-language code analysis (JS, Go, C++)
+* [ ] Generate architecture diagrams from dependency graphs
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions!
+To contribute:
+
+1. Fork this repo
+2. Create a new branch
+3. Make your changes
+4. Submit a PR 🚀
+
+---
+
+## 📜 License
+
+This project is licensed under the **MIT License** — free for personal and commercial use.
+
