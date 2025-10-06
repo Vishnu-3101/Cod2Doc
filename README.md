@@ -158,7 +158,7 @@ streamlit run app.py
 
    ```text
    output
-   ├── documentation_{repo_id}
+   ├── documentation_{entry_point_id}.md
    ```
 
 ---
