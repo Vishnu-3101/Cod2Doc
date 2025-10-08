@@ -12,6 +12,7 @@ from llm.chain_setup import get_chain
 import streamlit as st
 from pathlib import Path
 from git import Repo
+from datetime import datetime
 
 
 def clone_repo(repo_url, clone_dir="/knowledge_base/dummy"):
@@ -35,9 +36,6 @@ st.set_page_config(
 
 st.title("📘 AI Code Documentation Generator")
 
-# Input for repo link
-repo_link = st.text_input("🔗 Enter GitHub Repository Link")
-
 # Placeholder for progress messages
 progress_placeholder = st.empty()
 
@@ -54,25 +52,50 @@ logger = logging.getLogger("docstring_generator")
 
 load_dotenv()
 
+st.subheader("📥 Input Repository or Upload File")
 
-"""
-For every entry point, get their source code and make the doc - line by line...
+option = st.radio(
+    "Choose input type:",
+    ("🔗 GitHub Repository Link", "📄 Upload Python File")
+)
 
-"""
 
-if st.button("🚀 Generate Documentation") and repo_link:
+repo_path = None
+
+if option == "🔗 GitHub Repository Link":
+    repo_link = st.text_input("Enter GitHub Repository URL:")
+    if repo_link:
+        try:
+            clone_dir_name = repo_link.split("/")[-1].split(".")[0]
+            repo_path = f"knowledge_base/{clone_dir_name}"
+            if not os.path.exists(repo_path):
+                with st.spinner("🔄 Cloning repository..."):
+                    clone_repo(repo_url=repo_link, clone_dir=repo_path)
+            else:
+                progress_placeholder.info("📂 Repository already exists locally.")
+        except Exception as e:
+            st.error(f"❌ Error cloning repository: {e}")
+
+elif option == "📄 Upload Python File":
+    uploaded_file = st.file_uploader("Upload a Python file", type=["py"])
+    if uploaded_file is not None:
+        uid = datetime.now().strftime('%Y%m%d%H%M%S')
+        upload_dir = f"knowledge_base/{uploaded_file.name}_{uid}"
+        os.makedirs(upload_dir, exist_ok=True)
+        file_path = os.path.join(upload_dir, uploaded_file.name)
+        with open(file_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        progress_placeholder.info(f"✅ File uploaded successfully: {uploaded_file.name}")
+        repo_path = upload_dir
+
+if st.button("🚀 Generate Documentation") and repo_path:
     # for entry_point in entry_points
-    dependency_graph_path = "output/dependency_graph.json"
-    # repo_path = "knowledge_base/PowerPoint-Generator-Python-Project"
-    clone_dir_name = repo_link.split("/")[-1].split(".")[0]
-    repo_path = f"knowledge_base/{clone_dir_name}"
+    dir_name = repo_path.split("/")[-1]
+    dependency_graph_path = f"output/dependency_graph_{dir_name}.json"
 
-    if not os.path.exists(repo_path):
-        clone_repo(repo_url=repo_link, clone_dir=repo_path)
+    # repo_path = "knowledge_base/PowerPoint-Generator-Python-Project" 
 
-    force_build = True
-
-    if not os.path.exists(dependency_graph_path) or force_build:
+    if not os.path.exists(dependency_graph_path):
         progress_placeholder.info("📂 Understanding repository structure...")
         BuildGraph(repo_path=repo_path, dependency_graph_path=dependency_graph_path)
 
