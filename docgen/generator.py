@@ -1,4 +1,5 @@
 import re
+import json
 
 def generate_docs(entry_point_id, graph, chain, seen, ids, documentation_parts, conversation_history):
     """Generate documentation step by step, expanding dependencies layer by layer,
@@ -14,19 +15,29 @@ def generate_docs(entry_point_id, graph, chain, seen, ids, documentation_parts, 
 
     doc = chain.invoke({
         "query_code": graph[entry_point_id]["source_code"],
+        "file_path": graph[entry_point_id]['file_path'],
+        "start_line" : graph[entry_point_id]["start_line"],
         "previous_docs": prev_docs,
         "dependent_comps": dependent_comps
     })
     # print("Response from LLM: ", doc.content)
+    print(doc.content)
 
-    match = re.search(r"<answer>(.*?)</answer>", doc.content, re.DOTALL)
+    clean_output = re.sub(r"^```(?:json)?\s*|\s*```$", "", doc.content.strip())
+
+    # 3. Parse the cleaned JSON
+    output = json.loads(clean_output) 
+
+    match = output["content"]
+
+    print(match)
 
     extracted_content = ""
 
     if match:
-        extracted_content = match.group(1).strip()
+        extracted_content = match.strip()
     else:
-        print("No <answer> tags found.")
+        print("No answer found.")
 
 
     # print("Current Docs: ",extracted_content)
