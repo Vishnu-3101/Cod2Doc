@@ -13,6 +13,7 @@ import streamlit as st
 from pathlib import Path
 from git import Repo
 from datetime import datetime
+import json
 
 
 def clone_repo(repo_url, clone_dir="/knowledge_base/dummy"):
@@ -24,8 +25,6 @@ def clone_repo(repo_url, clone_dir="/knowledge_base/dummy"):
     Repo.clone_from(repo_url, clone_dir)
     st.success("✅ Repository cloned successfully!")
     return clone_dir
-
-
 
 
 st.set_page_config(
@@ -108,6 +107,7 @@ if st.button("🚀 Generate Documentation") and repo_path:
     entry_points = find_entrypoints(graph)
     logger.info(f"Entrypoints found: {entry_points}")
 
+    all_docs = []
 
     for entry_point in entry_points:
 
@@ -126,15 +126,15 @@ if st.button("🚀 Generate Documentation") and repo_path:
         documentation_parts = []
         conversation_history = []
 
-        intro_block = f"""
-        `
-        {entry_point}
-        `
+        # intro_block = f"""
+        # `
+        # {entry_point}
+        # `
 
-        This is the entry point of the code. The detailed explanation is provided below.
-        """
+        # This is the entry point of the code. The detailed explanation is provided below.
+        # """
 
-        documentation_parts.append(intro_block)
+        # documentation_parts.append(intro_block)
 
         final_docs = generate_docs(entry_point, graph, llm_chain,
             seen, list(graph.keys()), documentation_parts, conversation_history
@@ -144,21 +144,78 @@ if st.button("🚀 Generate Documentation") and repo_path:
 
         progress_placeholder.success(f"✅ Documentation ready for {entry_point}")
 
-        output_file = Path(f"output/documentation_{safe_name}.md")
+        output_file = Path(f"output/documentation_{safe_name}.json")
 
         with open(output_file, "w", encoding="utf-8", errors="ignore") as f:
-            f.write(final_docs)
+            f.write(json.dumps(final_docs))
 
-        print("Documentation generated in output/documentation.md")
+        print("Documentation generated in output/documentation_{safe_name}.json")
 
         with open(output_file, "rb") as f:
                 st.download_button(
                     label=f"⬇️ Download {entry_point} Documentation",
                     data=f,
-                    file_name=f"documentation_{safe_name}.md",
-                    mime="text/markdown"
+                    file_name=f"documentation_{safe_name}.json",
+                    mime="application/json" # change this format.....
                 )
+        all_docs.extend(final_docs)
+        st.session_state.last_output_file = str(output_file)
+
+        st.session_state.docs_generated = True
+        st.session_state.last_docs = all_docs
+        st.session_state.show_right = False
+        st.session_state.selected_file = None
+        # st.json(final_docs)
+
+if st.session_state.get("docs_generated", False):
+
+        # Slider to control the width ratio of the left column (only shown if right is visible)
+    if st.session_state.show_right:
+        left_width = st.slider("Adjust left column width", 0.1, 0.9, 0.5, step=0.001)
+    else:
+        left_width = 1.0  # Full width for left when right is hidden
+    # Create columns based on visibility
+    if st.session_state.show_right:
+        col1, col2 = st.columns([left_width, 1 - left_width])
+    else:
+        col1 = st.container()  # Full-width container for left side only
+
+
+    # Left Column Content
+    with col1:
+
+        FILE_PATH_JSON = st.session_state.last_output_file
+        with open(FILE_PATH_JSON, "r", encoding="utf-8") as f_json:
+            json_data = json.load(f_json)
+            content_only = [item.get("content") for item in json_data]
+
+            file_paths = [item.get("file_path") for item in json_data]
+            with st.container(height=600):
+                for i,content in enumerate(content_only):
+                    st.write(content)
+                    if st.button("Code link", key=f"block_{i}"):
+                        st.session_state.selected_file = file_paths[i]
+                        st.session_state.show_right = True
+                        st.rerun()
         
-        st.markdown(final_docs, unsafe_allow_html=True)
+            
+
+    # Right Column Content
+    if st.session_state.show_right:
+        with col2:
+            if st.button("Close Right Panel"):
+                    st.session_state.show_right = False
+                    st.rerun()
+            with st.container(height=500):
+                st.write("This is the right panel (now visible!).")
+                if "selected_file" in st.session_state:
+                    file_path = st.session_state.selected_file
+                with open(file_path, "r", encoding="utf-8") as file:
+                    content = file.read()
+                    st.code(content, language='python')
+            
+            # Optional: Button to close the right panel}
+                
+
 
 
