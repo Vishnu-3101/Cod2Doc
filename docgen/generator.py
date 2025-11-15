@@ -28,16 +28,17 @@ def generate_docs(entry_point_id, graph, chain, seen, ids, documentation_parts, 
     clean_output = re.sub(r'(?<=f)"(.*?)"', r'f\"\1\"', clean_output)
 
     # 3. Parse the cleaned JSON
-    output = json.loads(clean_output) 
+    try:
+        output = json.loads(clean_output) 
 
-    match = output["content"]
+        match = output["content"]
 
-    print(output["file_path"])
+        print(output["file_path"])
 
-    extracted_content = ""
+        extracted_content = ""
 
-    if match:
-        extracted_content = match.strip()
+        if match:
+            extracted_content = match.strip()
     # else:
     #     print("No answer found.")
 
@@ -46,10 +47,12 @@ def generate_docs(entry_point_id, graph, chain, seen, ids, documentation_parts, 
 
     # print(entry_point_id)
     # print(graph[entry_point_id]['source_code'])
-    print("--------------------------------------------")
+        print("--------------------------------------------")
 
-    documentation_parts.append(output)
-    conversation_history.append(extracted_content)
+        documentation_parts.append(output)
+        conversation_history.append(extracted_content)
+    except json.JSONDecodeError as e:
+        print(clean_output)
 
     for deps in graph[entry_point_id]['depends_on']:
         generate_docs(deps, graph, chain, seen, ids, documentation_parts, conversation_history)
