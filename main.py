@@ -189,7 +189,6 @@ if st.session_state.get("docs_generated", False):
     with col1:
 
         FILE_PATH_JSON = st.session_state.last_output_file
-        print(FILE_PATH_JSON)
         with open(FILE_PATH_JSON, "r", encoding="utf-8") as f_json:
             json_data = json.load(f_json)
             content_only = [item.get("content") for item in json_data]
