@@ -19,20 +19,20 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\AutoDiff\\AutoDiff.py",
     "relative_path": "AutoDiff.py",
     "depends_on": [
+      "AutoDiff._backward",
+      "AutoDiff.Tensor.__mul__",
+      "AutoDiff.Tensor.__radd__",
       "AutoDiff.Tensor.__add__",
-      "AutoDiff.Tensor",
-      "AutoDiff.node",
+      "AutoDiff.Tensor.backward",
+      "AutoDiff.Tensor.__rmul__",
       "AutoDiff.Tensor.__repr__",
       "AutoDiff._op",
-      "AutoDiff.Tensor.__radd__",
-      "AutoDiff.Tensor.__rmul__",
       "AutoDiff.build_grad",
-      "AutoDiff.Tensor.__mul__",
-      "AutoDiff._backward",
-      "AutoDiff.data",
-      "AutoDiff.child",
       "AutoDiff._prev",
-      "AutoDiff.Tensor.backward"
+      "AutoDiff.data",
+      "AutoDiff.Tensor",
+      "AutoDiff.node",
+      "AutoDiff.child"
     ],
     "source_code": "class Tensor():\n    '''\n    Converts each Tensor into a class of type Tensor.\n    Operator overloading happens for each operator.\n    exp: \n        x1+x2 => x1 is self\n                 x2 is other\n    After every operation, a new result node is created with operand nodes set to prev. This helps during backpropagation from destination node to source node to calculate gradients.\n    '''\n    def __init__(self,data, _prev=(),_op=''):\n        '''\n        Args:\n            data: Holds the data of the node\n            grad: The gradient Tensor\n            _backward: Function to calculate gradients of prev nodes\n                    => This is called in the one of the prev node operation which is responsible to create the current node.\n            _prev: Keeps track of the previous nodes that generated the current node\n            _op: Holds the operation performed on prev nodes to generate current node\n        '''\n        self.data = data\n        self.grad = 0\n        self._backward = lambda : None\n        self._prev = set(_prev)\n        self._op = _op\n\n    def __repr__(self):\n        return f\"Value(data={self.data}, grad={self.grad})\"\n\n    def __add__(self,other):\n        other = other if isinstance(other,Tensor) else Tensor(other)\n        out = Tensor(self.data + other.data, (self,other),'+')\n        def _backward():\n            '''This function is executed only when _backward is called explictly or when node._backward() is called. When node._add__ is called, this function don't get executed. It will only be initialized to node._backward = 'function address'\n            '''\n            self.grad += out.grad\n            other.grad += out.grad\n        out._backward = _backward\n        return out\n    \n    def __mul__(self,other):\n        other = other if isinstance(other,Tensor) else Tensor(other)\n        out = Tensor(self.data * other.data, (self,other),'*')\n        def _backward():\n            self.grad += out.grad*other.data\n            other.grad += out.grad*self.data\n        out._backward = _backward\n        return out\n    \n\n    '''The __radd__ and __rmul__ represents reverse addition and multiplication\n    Ex: 5+x1, 5 of type int cannot be added with a Tensor class.\n        So in such cases __radd__ is called which converts 5+x1 to x1+5.\n    '''\n    def __radd__(self,other):\n        return self+other\n    \n    def __rmul__(self,other):\n        return self+other\n    \n    def backward(self):\n        '''Perfrom topological sort using DFS.\n        For every directed edge u-v, vertex u comes before v in the ordering.\n        '''\n        visited = set()\n        topo = []\n\n        def build_grad(node):\n            if node not in visited:\n                visited.add(node)\n                for child in node._prev:\n                    build_grad(child)\n                topo.append(node)\n\n        '''The gradient of output node is set to 1. \n        Since backward is called only once, it is declared here..\n        '''\n        self.grad = 1             \n        build_grad(self)\n        for node in reversed(topo):\n            node._backward()",
     "start_line": 8,
@@ -124,8 +124,8 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\AutoDiff\\AutoDiff.py",
     "relative_path": "AutoDiff.py",
     "depends_on": [
-      "AutoDiff.build_grad",
       "AutoDiff.node",
+      "AutoDiff.build_grad",
       "AutoDiff.child"
     ],
     "source_code": "def backward(self):\n        '''Perfrom topological sort using DFS.\n        For every directed edge u-v, vertex u comes before v in the ordering.\n        '''\n        visited = set()\n        topo = []\n\n        def build_grad(node):\n            if node not in visited:\n                visited.add(node)\n                for child in node._prev:\n                    build_grad(child)\n                topo.append(node)\n\n        '''The gradient of output node is set to 1. \n        Since backward is called only once, it is declared here..\n        '''\n        self.grad = 1             \n        build_grad(self)\n        for node in reversed(topo):\n            node._backward()",
@@ -180,9 +180,9 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\AutoDiff\\main.py",
     "relative_path": "main.py",
     "depends_on": [
-      "main.SimpleFunction",
       "main.x1",
-      "main.x2"
+      "main.x2",
+      "main.SimpleFunction"
     ],
     "source_code": "y = SimpleFunction(x1,x2)",
     "start_line": 12,
@@ -220,11 +220,11 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\AutoDiff\\utils.py",
     "relative_path": "utils.py",
     "depends_on": [
-      "utils.build",
-      "utils.nodes",
-      "utils.child",
       "utils.edges",
-      "utils.v"
+      "utils.child",
+      "utils.v",
+      "utils.nodes",
+      "utils.build"
     ],
     "source_code": "def _trace(root):\n    nodes, edges = set(), set()\n\n    def build(v):\n        if v not in nodes:\n            nodes.add(v)\n            for child in v._prev:\n                edges.add((child, v))\n                build(child)\n\n    build(root)\n    return nodes, edges",
     "start_line": 5,
@@ -238,13 +238,13 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\AutoDiff\\utils.py",
     "relative_path": "utils.py",
     "depends_on": [
-      "utils.n",
-      "utils.n1",
       "utils.n2",
+      "utils.n",
+      "utils.Digraph",
+      "utils.edges",
       "utils.nodes",
       "utils._trace",
-      "utils.edges",
-      "utils.Digraph"
+      "utils.n1"
     ],
     "source_code": "def DrawGraph(root):\n    dot = Digraph(format='png', graph_attr={'rankdir': 'LR'})  # Left to right\n\n    nodes, edges = _trace(root)\n    for n in nodes:\n        uid = str(id(n))\n        # Add node: show data and grad\n        dot.node(name=uid, label=repr(n), shape='record')\n        if n._op:\n            dot.node(name=uid + n._op, label=n._op)\n            dot.edge(uid + n._op, uid)\n\n    for n1, n2 in edges:\n        dot.edge(str(id(n1)), str(id(n2)) + n2._op)\n\n    return dot",
     "start_line": 18,
@@ -258,11 +258,11 @@
     "file_path": "D:\\Projects\\Code2Doc\\knowledge_base\\AutoDiff\\utils.py",
     "relative_path": "utils.py",
     "depends_on": [
-      "utils.plt",
-      "utils.build",
-      "utils.child",
       "utils.nx",
-      "utils.v"
+      "utils.plt",
+      "utils.child",
+      "utils.v",
+      "utils.build"
     ],
     "source_code": "def DrawGraph2(output_node):\n    G = nx.DiGraph()\n    visited = set()\n\n    def build(v):\n        if v not in visited:\n            visited.add(v)\n            label = repr(v)\n            G.add_node(v, label=label)\n            for child in v._prev:\n                G.add_edge(child, v)\n                build(child)\n\n    build(output_node)\n\n    pos = nx.spring_layout(G)\n    labels = nx.get_node_attributes(G, 'label')\n    nx.draw(G, pos, with_labels=True, labels=labels, node_size=2000, node_color=\"lightblue\", font_size=8)\n    plt.title(\"Computation Graph\")\n    plt.show()",
     "start_line": 35,
