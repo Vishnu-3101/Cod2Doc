@@ -3,5 +3,3 @@ langchain-google-genai
 langchain-core
 GitPython
 Streamlit
-shutil
-pathlib
