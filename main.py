@@ -90,7 +90,10 @@ elif option == "📄 Upload Python File":
 if st.button("🚀 Generate Documentation") and repo_path:
     # for entry_point in entry_points
     dir_name = repo_path.split("/")[-1]
+    
     dependency_graph_path = f"output/dependency_graphs/dependency_graph_{dir_name}.json"
+
+    os.makedirs(os.path.dirname(dependency_graph_path), exist_ok=True)
 
     # repo_path = "knowledge_base/PowerPoint-Generator-Python-Project" 
 
@@ -145,6 +148,7 @@ if st.button("🚀 Generate Documentation") and repo_path:
         progress_placeholder.success(f"✅ Documentation ready for {entry_point}")
 
         output_file = Path(f"output/documentation/documentation_{safe_name}.json")
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
         with open(output_file, "w", encoding="utf-8", errors="ignore") as f:
             f.write(json.dumps(final_docs))
