@@ -32,19 +32,19 @@ def generate_docs(entry_point_id, graph, chain, seen, ids, documentation_parts, 
 
     match = output["content"]
 
-    print(match)
+    print(output["file_path"])
 
     extracted_content = ""
 
     if match:
         extracted_content = match.strip()
-    else:
-        print("No answer found.")
+    # else:
+    #     print("No answer found.")
 
 
     # print("Current Docs: ",extracted_content)
 
-    print(entry_point_id)
+    # print(entry_point_id)
     # print(graph[entry_point_id]['source_code'])
     print("--------------------------------------------")
 
