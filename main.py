@@ -214,11 +214,8 @@ if st.session_state.get("docs_generated", False):
             with st.container(height=500):
                 st.write("This is the right panel (now visible!).")
                 if "selected_file" in st.session_state:
-                    file_path = Path(st.session_state.selected_file)
-                    parts = file_path.parts
-                    idx = parts.index("knowledge_base")
-                    subpath = Path(*parts[idx:])
-                with open(subpath, "r", encoding="utf-8") as file:
+                    file_path = st.session_state.selected_file
+                with open(file_path, "r", encoding="utf-8") as file:
                     content = file.read()
                     st.code(content, language='python')
             
