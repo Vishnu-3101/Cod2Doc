@@ -21,9 +21,11 @@ def generate_docs(entry_point_id, graph, chain, seen, ids, documentation_parts, 
         "dependent_comps": dependent_comps
     })
     # print("Response from LLM: ", doc.content)
-    print(doc.content)
+   
 
     clean_output = re.sub(r"^```(?:json)?\s*|\s*```$", "", doc.content.strip())
+
+    clean_output = re.sub(r'(?<=f)"(.*?)"', r'f\"\1\"', clean_output)
 
     # 3. Parse the cleaned JSON
     output = json.loads(clean_output) 
@@ -46,10 +48,10 @@ def generate_docs(entry_point_id, graph, chain, seen, ids, documentation_parts, 
     # print(graph[entry_point_id]['source_code'])
     print("--------------------------------------------")
 
-    documentation_parts.append(extracted_content)
+    documentation_parts.append(output)
     conversation_history.append(extracted_content)
 
     for deps in graph[entry_point_id]['depends_on']:
         generate_docs(deps, graph, chain, seen, ids, documentation_parts, conversation_history)
     
-    return "\n----------------------\n".join(documentation_parts)
+    return documentation_parts
