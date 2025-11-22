@@ -14,6 +14,10 @@ from pathlib import Path
 from git import Repo
 from datetime import datetime
 import json
+from pygments import highlight
+from pygments.lexers import PythonLexer
+from pygments.formatters import HtmlFormatter
+import streamlit.components.v1 as components
 
 
 def clone_repo(repo_url, clone_dir="/knowledge_base/dummy"):
@@ -194,11 +198,15 @@ if st.session_state.get("docs_generated", False):
             content_only = [item.get("content") for item in json_data]
 
             file_paths = [item.get("file_path") for item in json_data]
+            start_lines = [item.get("start_line") for item in json_data]
+            end_lines = [item.get("end_line") for item in json_data]
             with st.container(height=600):
                 for i,content in enumerate(content_only):
                     st.write(content)
                     if st.button("Code link", key=f"block_{i}"):
                         st.session_state.selected_file = file_paths[i]
+                        st.session_state.start_line = start_lines[i]
+                        st.session_state.end_line = end_lines[i]
                         st.session_state.show_right = True
                         st.rerun()
         
@@ -216,7 +224,58 @@ if st.session_state.get("docs_generated", False):
                     file_path = st.session_state.selected_file
                 with open(file_path, "r", encoding="utf-8") as file:
                     content = file.read()
-                    st.code(content, language='python')
+                    # st.code(content, language='python')
+
+                    formatter = HtmlFormatter(
+                        linenos=False,
+                        hl_lines=list(range(st.session_state.start_line, st.session_state.end_line + 1)),
+                        cssclass="codehilite"
+                    )
+
+                    highlighted_code = highlight(content, PythonLexer(), formatter)
+                    css = formatter.get_style_defs('.codehilite')
+
+                    auto_scroll_js = f"""
+                    <script>
+                    let el = document.querySelector('.codehilite');
+                    if (el) {{
+                        // Scroll to start_line (convert line to approx pixel)
+                        el.scrollTop = {(st.session_state.start_line - 3) * 18};  
+                    }}
+                    </script>
+                    """
+
+                    final_html = f"""
+                    <style>
+                    {css}
+                    .codehilite .n,
+                    .codehilite .mi,
+                    .codehilite .mf {{
+                        color: black !important;
+                    }}
+
+                    .codehilite {{
+                        max-height: 500px;
+                        overflow-y: auto;
+                        background: white;
+                        border-radius: 6px;
+                        padding: 12px;
+                        font-size: 14px;
+                    }}
+                    .codehilite table {{
+                        width: 100%;
+                    }}
+                    .codehilite .hl {{
+                        background-color: rgba(255, 230, 120, 0.5) !important;
+                        color: black !important;
+                    }}
+                    </style>
+
+                    {highlighted_code}
+                    {auto_scroll_js}
+                    """
+
+                    components.html(final_html, height=500, scrolling=False)
             
             # Optional: Button to close the right panel}
                 
